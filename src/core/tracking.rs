@@ -1621,6 +1621,16 @@ fn db_sidecars(db_path: &std::path::Path) -> Vec<PathBuf> {
 }
 
 pub(crate) fn get_db_path() -> Result<PathBuf> {
+    // Priority 0: Ephemeral mode. The corporate fork honors `--ephemeral` /
+    // `PRIVACYTK_EPHEMERAL=1` by short-circuiting every persistent path to
+    // `":memory:"`. SQLite treats the literal string `:memory:` as an
+    // in-process, anonymous database that lives only as long as the
+    // connection. WAL mode is silently ignored for `:memory:`, which is the
+    // correct outcome: there is no second file to coordinate with.
+    if crate::core::ephemeral::is_active() {
+        return Ok(PathBuf::from(":memory:"));
+    }
+
     // Priority 1: Environment variable RTK_DB_PATH
     if let Ok(custom_path) = std::env::var("RTK_DB_PATH") {
         return Ok(PathBuf::from(custom_path));
@@ -1660,42 +1670,50 @@ enum MigrationMode {
 fn open_and_prepare(mode: MigrationMode) -> Result<Connection> {
     let db_path = get_db_path()?;
 
-    // `create_private_dir` is cheap even when the directory already exists (its own
-    // chmod is a no-op past the first call — see `utils::set_owner_only`), so it
-    // stays unconditional.
-    //
-    // For a brand-new DB, pre-create the file ourselves via `open_private` so
-    // SQLite derives the -wal/-shm modes from an already-private DB instead of the
-    // umask. For an already-existing DB, skip that pre-create's own redundant
-    // open()/close() pair (a second file open on top of the `Connection::open`
-    // right after it) — but still re-chmod the file *before* `Connection::open`
-    // via the now-cheap `restrict_file` (a no-op stat once permissions already
-    // match), rather than only healing it via `restrict_db_files` at the very
-    // end. Skipping the pre-open heal entirely would let `Connection::open` and
-    // any migration writes touch a file whose permissions had drifted (external
-    // tampering, restored backup) before anything corrected them — the same
-    // "chmod before SQLite ever opens it" invariant the original pre-create dance
-    // provided, just without paying its extra open. `Tracker::new()` is on the
-    // hot path for every `rtk <cmd>` and, since rtk-ai/rtk#3206's hook_decisions
-    // ground-truth logging, every single PreToolUse hook call (not just
-    // RTK-covered ones), so avoiding that redundant open on the already-set-up
-    // common case matters for the <10ms budget.
-    if let Some(parent) = db_path.parent() {
-        crate::core::utils::create_private_dir(parent)?;
-    }
-    if db_path.exists() {
-        crate::core::utils::restrict_file(&db_path);
-    } else {
-        crate::core::utils::open_private(
-            std::fs::OpenOptions::new().write(true).create(true),
-            &db_path,
-        )
-        .with_context(|| {
-            format!(
-                "Failed to pre-create private DB file: {}",
-                db_path.display()
+    // `:memory:` is the corporate fork's ephemeral-mode URI. SQLite accepts
+    // it as an anonymous in-process database; no parent directory or
+    // pre-create dance applies, and the WAL pragma is a no-op (memory
+    // databases do not journal). Connection drops release the memory.
+    let ephemeral = db_path == PathBuf::from(":memory:");
+
+    if !ephemeral {
+        // `create_private_dir` is cheap even when the directory already exists (its own
+        // chmod is a no-op past the first call — see `utils::set_owner_only`), so it
+        // stays unconditional.
+        //
+        // For a brand-new DB, pre-create the file ourselves via `open_private` so
+        // SQLite derives the -wal/-shm modes from an already-private DB instead of the
+        // umask. For an already-existing DB, skip that pre-create's own redundant
+        // open()/close() pair (a second file open on top of the `Connection::open`
+        // right after it) — but still re-chmod the file *before* `Connection::open`
+        // via the now-cheap `restrict_file` (a no-op stat once permissions already
+        // match), rather than only healing it via `restrict_db_files` at the very
+        // end. Skipping the pre-open heal entirely would let `Connection::open` and
+        // any migration writes touch a file whose permissions had drifted (external
+        // tampering, restored backup) before anything corrected them — the same
+        // "chmod before SQLite ever opens it" invariant the original pre-create dance
+        // provided, just without paying its extra open. `Tracker::new()` is on the
+        // hot path for every `rtk <cmd>` and, since rtk-ai/rtk#3206's hook_decisions
+        // ground-truth logging, every single PreToolUse hook call (not just
+        // RTK-covered ones), so avoiding that redundant open on the already-set-up
+        // common case matters for the <10ms budget.
+        if let Some(parent) = db_path.parent() {
+            crate::core::utils::create_private_dir(parent)?;
+        }
+        if db_path.exists() {
+            crate::core::utils::restrict_file(&db_path);
+        } else {
+            crate::core::utils::open_private(
+                std::fs::OpenOptions::new().write(true).create(true),
+                &db_path,
             )
-        })?;
+            .with_context(|| {
+                format!(
+                    "Failed to pre-create private DB file: {}",
+                    db_path.display()
+                )
+            })?;
+        }
     }
 
     let conn = Connection::open(&db_path)?;
@@ -1724,7 +1742,9 @@ fn open_and_prepare(mode: MigrationMode) -> Result<Connection> {
         }
     }
 
-    restrict_db_files(&db_path);
+    if !ephemeral {
+        restrict_db_files(&db_path);
+    }
 
     Ok(conn)
 }

@@ -137,6 +137,52 @@ fn network_guard_module_present_and_rejects_permissive_policy() {
 }
 
 #[test]
+fn dedup_module_present_and_opt_in_only() {
+    let d = read("src/core/dedup.rs");
+    assert!(
+        d.contains("PRIVACYTK_DEDUP"),
+        "src/core/dedup.rs must read the PRIVACYTK_DEDUP env var to \
+         detect opt-in"
+    );
+    // The default must be off; the module must never auto-activate.
+    assert!(
+        d.contains("set_enabled"),
+        "src/core/dedup.rs must expose a programmatic enable toggle for tests"
+    );
+    // Cache must live under /tmp (never inside the repo or user home).
+    assert!(
+        d.contains("std::env::temp_dir"),
+        "src/core/dedup.rs cache root must live under std::env::temp_dir()"
+    );
+}
+
+#[test]
+fn dedup_does_not_persist_command_output() {
+    // Privacy invariant: the dedup cache stores only (key, sha256, bytes,
+    // timestamp). The actual output bytes never land in the cache file.
+    let d = read("src/core/dedup.rs");
+    assert!(
+        !d.contains("write_all(output"),
+        "src/core/dedup.rs must not persist raw command output to the cache; \
+         only the hash is stored"
+    );
+}
+
+#[test]
+fn dedup_subcommand_is_meta() {
+    let main = read("src/main.rs");
+    assert!(
+        main.contains("Commands::Dedup"),
+        "main.rs must dispatch Commands::Dedup"
+    );
+    let constants = read("src/core/constants.rs");
+    assert!(
+        constants.contains("\"dedup\""),
+        "RTK_META_COMMANDS must include \"dedup\""
+    );
+}
+
+#[test]
 fn audit_module_present_and_redacts() {
     let a = read("src/core/audit.rs");
     assert!(

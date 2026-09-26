@@ -32,4 +32,7 @@ pub const RTK_META_COMMANDS: &[&str] = &[
     "json",
     "audit",
     "verify-network",
+    "where-state",
+    "network-audit",
+    "dedup",
 ];

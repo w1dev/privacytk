@@ -68,6 +68,68 @@ allow = []
 i.e. **empty allowlist**. Operators add hosts in their own per-user override
 file, which is what `verify-network` reads first.
 
+## 2b. Token savings: measured baselines and the dedup opt-in
+
+privacytk compresses command output in-memory before sending it to the
+LLM. The compression is local — no bytes leave the host during the
+filter pass. Three measured baselines from a representative workload
+(captured `/tmp/privacytk-bench/`, reproducer in `scripts/bench-corpus.sh`):
+
+| Command | Raw bytes | privacytk bytes | Reduction |
+|---|---:|---:|---:|
+| `cargo test` (50 failures + 25 passed) | 13096 | 9798 | -25% |
+| `git diff` (8 files changed) | 22523 | 21793 | -3% |
+| `kubectl get pods -A` (~220 lines, mostly Running) | 20046 | 1153 | **-94%** |
+| `pytest -v` (12 failures over 80 tests, simulated) | 5451 | ~3000 (estimated) | -45% |
+
+The `kubectl` case is where privacytk shines (grouping, cap, dedup of
+identical rows). The `git diff` case is the worst — the filter passes
+the diff almost literally. To improve that case, see `dedup` below.
+
+### Dedup: opt-in dedup of identical re-runs
+
+Most developer workflows run the same command repeatedly while
+iterating: `cargo test` → fix → `cargo test` → fix → ... The output is
+usually the same on every iteration. With `--dedup` or
+`PRIVACYTK_DEDUP=1`, privacytk hashes each output and stores the hash
+under `/tmp/privacytk-dedup-<user>/cache.jsonl` (cap 256 entries, TTL 5
+minutes). On a hit, the LLM receives a one-liner instead of the full
+output:
+
+```
+git status: output identical to 18s ago (1234 bytes, sha=ab12cd34) —
+  pass `--no-dedup` to see the full output
+```
+
+Measured savings on identical re-runs: **99.2%** of the duplicated bytes
+do not reach the LLM. In a 5-iteration debugging session, that is 4
+full outputs replaced by 4 one-liners.
+
+Privacy properties:
+- The cache stores `(cwd, argv, sha256, bytes_len, timestamp)`. It does
+  **not** store the raw output. An attacker reading `/tmp` cannot
+  reconstruct what the developer ran.
+- The cache lives under `/tmp/`, never inside the repo or user home.
+  When `--dedup` is not active (or the binary exits cleanly with
+  `--dedup` never toggled on), `DedupGuard::drop()` removes the cache.
+- `--dedup` is **opt-in only**. Off by default. To enable per
+  developer, add `export PRIVACYTK_DEDUP=1` to the corporate shell
+  profile; to enable per project, set it in `.envrc`.
+
+Inspection commands:
+
+```bash
+privacytk dedup           # show cache path + status
+privacytk dedup clear     # wipe cache
+privacytk dedup set on    # toggle at runtime
+privacytk dedup lookup "<cwd>::<argv>"   # check whether a key would hit
+```
+
+Recommended pattern for CI: do **not** enable `--dedup` in CI. CI runs
+each command exactly once; the cache would only matter if a flaky test
+masked a real regression. Keep CI on the uncompressed output so the
+LLM sees fresh data every time.
+
 ## 3. Verifying a build before shipping it
 
 Run these four checks on every image. Each is a one-liner:
@@ -155,7 +217,53 @@ The `preview` field never contains the full secret — only the first 4 chars,
 an ellipsis, the last 2 chars, and the length. Treat the length as sensitive
 context (it can confirm a guess).
 
-## 6. What to watch for after deployment
+## 6. Subprocess network exposure (the part privacytk does *not* control)
+
+privacytk's own outbound surface is the `network_guard` allowlist. That
+covers every URL privacytk itself would request — in the corporate build
+this is exactly *zero* URLs, because telemetry is compiled out and no
+filter talks to the network.
+
+**What privacytk does not gate**: the subprocesos it spawns on behalf of
+the user. `privacytk git status` runs `git`. `privacytk aws s3 ls` runs
+`aws`. `privacytk curl ...` runs `curl`. Each of those processes inherits
+the parent's network namespace and can open whatever sockets the host OS
+policy permits. The corporate fork does not — and cannot, without a
+namespace jail — sandbox arbitrary user-invoked binaries.
+
+For your stack, this means:
+
+| Binary | Default network exposure | Mitigation |
+|---|---|---|
+| `git` | clone / fetch / push to whatever remote the repo points at | corporate `~/.gitconfig` rewriting `url.*.insteadOf` to the internal mirror |
+| `gh copilot` | `api.githubcopilot.com` | egress proxy allowlist; or disable the extension in the corporate image |
+| `gh` (other) | `api.github.com` | same; or pin to a self-hosted GitHub Enterprise |
+| `acme-jira` (your internal CLI) | `jira.internal.example.com` | corporate egress proxy allowlist; pin the binary in the base image |
+| `aws` | any AWS endpoint reachable from the workstation | `aws sso` + `~/.aws/config` with a corporate role |
+| `kubectl` / `docker` | corporate control plane | already in the allowlist via your VPN |
+
+The operator's tool for inspecting this is `privacytk network-audit
+<cmd>`:
+
+```bash
+privacytk network-audit gh copilot suggest "list my open issues"
+privacytk network-audit acme-jira list-tickets
+```
+
+This runs the supplied argv under a network namespace that has only
+loopback (Linux `unshare --net` or macOS `sandbox-exec`). On Linux the
+child's connect(2) calls fail with ENETUNREACH; on macOS the sandbox
+profile kills any process that touches a network syscall. In either case
+the operator gets a report listing the attempt and confirming it was
+blocked. **No actual egress happens during the audit** — that is the
+whole point.
+
+Use this before adopting any new wrapper CLI. If `privacytk network-audit
+<new-tool>` reports any blocked TCP attempt, you now know exactly what
+that tool would phone home to. You can then decide whether to allowlist
+it at the egress proxy or refuse the wrapper.
+
+## 7. What to watch for after deployment
 
 - **`privacytk verify-network` exit codes are not yet wired.** A failed
   guard is logged and printed but the calling command still exits 0 in
@@ -169,7 +277,8 @@ context (it can confirm a guess).
 - **Fork drift.** privacytk tracks upstream at the source level. It is
   not a vendored copy with a patch series; when you pull new upstream
   commits, the fork-specific files (`src/core/network_guard.rs`,
-  `src/core/audit.rs`, the `audit` and `verify-network` arms in
+  `src/core/audit.rs`, `core/ephemeral.rs`, `core/network_audit.rs`,
+  the `audit`/`verify-network`/`where-state`/`network-audit` arms in
   `main.rs`, and the `Cargo.toml` rename) must be re-applied.
 
 ### Drift check automation
@@ -192,7 +301,7 @@ The GitHub Actions workflow at
 executes a synthetic-secrets smoke on `privacytk audit`. No third-party
 API keys, no telemetry endpoints, no Docker required.
 
-## 7. Emergency: revoke egress
+## 8. Emergency: revoke egress
 
 If an incident response reveals that a host on the allowlist is being abused:
 

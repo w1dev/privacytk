@@ -76,7 +76,7 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Verbosity level (-v, -vv, -vvv) — only recognized before the subcommand
+    /// Verbosity level (-v, -vvv) — only recognized before the subcommand
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
@@ -87,6 +87,13 @@ struct Cli {
     /// Set SKIP_ENV_VALIDATION=1 for child processes (Next.js, tsc, lint, prisma)
     #[arg(long = "skip-env", global = true)]
     skip_env: bool,
+
+    /// Run with zero on-disk persistence. Tracking DB, recall cache, tee
+    /// buffers and hook-audit logs all stay in-memory or under a temp dir
+    /// that is removed when the process exits. Equivalent to setting
+    /// `PRIVACYTK_EPHEMERAL=1` in the environment.
+    #[arg(long, global = true)]
+    ephemeral: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -995,6 +1002,64 @@ enum Commands {
         #[arg(long)]
         reload: bool,
     },
+
+    /// List every path the binary can touch on disk (SQLite DBs, TOML
+    /// config, tee buffers, hook-audit log). Reports existence and size.
+    /// Use this to confirm the on-disk footprint before/after a run.
+    /// Pass `--purge` to remove the ephemeral temp dir if active.
+    WhereState {
+        /// Also remove the ephemeral temp dir if one exists.
+        #[arg(long)]
+        purge: bool,
+        /// Print machine-readable JSON instead of the human table.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Run an arbitrary command inside a network namespace that has only
+    /// the host's loopback. Captures every DNS lookup and outbound TCP
+    /// attempt and reports them. Use this to detect whether a wrapper you
+    /// plan to install (e.g. `acme-jira`) tries to phone home without
+    /// your knowledge. Linux uses `unshare -n`; macOS uses `sandbox-exec`
+    /// when available. If neither sandbox tool is available, the command
+    /// is run with `lsof` post-collection as a fallback (best-effort).
+    NetworkAudit {
+        /// Command and arguments to run.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Manage the dedup cache. With no subcommand, prints the current
+    /// cache size and TTL. `clear` removes the cache. `lookup KEY`
+    /// reports whether the given key would currently resolve as a hit or
+    /// miss.
+    Dedup {
+        #[command(subcommand)]
+        action: Option<DedupAction>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DedupAction {
+    /// Remove the dedup cache.
+    Clear,
+    /// Print whether the given key is currently a hit or a miss.
+    Lookup {
+        /// Synthetic key to check (the literal string, not a hash).
+        key: String,
+    },
+    /// Toggle dedup on/off for the current process (also reads
+    /// `PRIVACYTK_DEDUP=1`). Use `on` / `off`.
+    Set {
+        #[arg(value_enum)]
+        state: DedupState,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DedupState {
+    On,
+    Off,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1955,7 +2020,16 @@ fn is_native_test_expression(command: &[String]) -> bool {
 }
 
 fn run_cli() -> Result<i32> {
-    // Fire-and-forget telemetry ping (1/day, non-blocking)
+    // Activate ephemeral mode as early as possible. Reading the env here
+    // (rather than inside the CLI parser) means PRIVACYTK_EPHEMERAL=1
+    // works even for `privacytk where-state` and other introspection
+    // commands where no subcommand dispatch happens.
+    core::ephemeral::init_from_env();
+    core::dedup::init_from_env();
+
+    // Fire-and-forget telemetry ping (1/day, non-blocking). No-op in
+    // privacytk builds (telemetry is compiled out), but the call site
+    // stays so the diff against upstream is small.
     core::telemetry::maybe_ping();
 
     let cli = match Cli::try_parse_from(std::env::args_os()) {
@@ -1967,6 +2041,18 @@ fn run_cli() -> Result<i32> {
             return run_fallback(e);
         }
     };
+
+    // The --ephemeral flag is a stronger signal than the env var: a
+    // developer who explicitly passed it has asked for zero on-disk
+    // persistence this run. Overrides any env-var activation.
+    if cli.ephemeral {
+        core::ephemeral::set_force(true);
+    }
+
+    // Hold the EphemeralGuard for the rest of the process so the temp
+    // dir is cleaned up on exit (Ctrl-C included — `Drop` runs on
+    // unwinding via panic + abort paths, though not on signal kill).
+    let _ephemeral_guard = core::ephemeral::EphemeralGuard;
 
     // Warn if installed hook is outdated/missing (1/day, non-blocking).
     // Skip for Gain (shows its own inline warning), Init/Verify (manage the hook themselves).
@@ -2823,6 +2909,85 @@ fn run_cli() -> Result<i32> {
             }
             0
         }
+
+        Commands::WhereState { purge, json } => {
+            let paths = core::ephemeral::enumerate_state_paths();
+            let ephemeral_active = core::ephemeral::is_active();
+            if purge && ephemeral_active {
+                core::ephemeral::purge_temp_dir();
+            }
+            if json {
+                let total: u64 = paths.iter().map(|p| p.size_bytes).sum();
+                let payload = serde_json::json!({
+                    "ephemeral": ephemeral_active,
+                    "total_disk_bytes": total,
+                    "paths": paths.iter().map(|p| serde_json::json!({
+                        "label": p.label,
+                        "path": p.path.display().to_string(),
+                        "exists": p.exists,
+                        "size_bytes": p.size_bytes,
+                    })).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("privacytk on-disk footprint:");
+                println!("  ephemeral mode:        {}", if ephemeral_active { "ACTIVE" } else { "off" });
+                let total: u64 = paths.iter().map(|p| p.size_bytes).sum();
+                println!("  total bytes (live):    {}", total);
+                println!();
+                for p in &paths {
+                    println!("{}", p.render());
+                }
+                if ephemeral_active {
+                    println!();
+                    println!("ephemeral temp dir: {}", core::ephemeral::ensure_root().map(|p| p.display().to_string()).unwrap_or_else(|_| "(unavailable)".into()));
+                    println!("Pass --purge to remove it now.");
+                }
+            }
+            0
+        }
+
+        Commands::NetworkAudit { args } => {
+            if args.is_empty() {
+                eprintln!("usage: privacytk network-audit <cmd> [args...]");
+                return Ok(2);
+            }
+            let sandbox = core::network_audit::detect_sandbox();
+            let report = core::network_audit::run(sandbox, &args);
+            print!("{}", core::network_audit::render(&report));
+            report.exit_code.unwrap_or(1)
+        }
+
+        Commands::Dedup { action } => match action {
+            None => {
+                let enabled = core::dedup::is_enabled();
+                println!("dedup: {}", if enabled { "ACTIVE" } else { "off" });
+                println!("cache: {:?}", core::dedup::cache_root());
+                0
+            }
+            Some(DedupAction::Clear) => {
+                core::dedup::purge();
+                println!("dedup cache cleared");
+                0
+            }
+            Some(DedupAction::Lookup { key }) => {
+                let ttl = std::time::Duration::from_secs(300);
+                let r = core::dedup::lookup(&key, ttl);
+                match r {
+                    core::dedup::LookupResult::Fresh => println!("fresh"),
+                    core::dedup::LookupResult::Hit { age_secs, bytes, sha256 } => {
+                        println!("hit: {}s old, {} bytes, sha={}", age_secs, bytes, &sha256[..8]);
+                    }
+                }
+                0
+            }
+            Some(DedupAction::Set { state }) => {
+                let v = matches!(state, DedupState::On);
+                core::dedup::set_enabled(v);
+                println!("dedup: {}", if v { "ACTIVE" } else { "off" });
+                0
+            }
+        },
 
         Commands::Learn {
             project,
@@ -3846,7 +4011,7 @@ mod tests {
         // RTK meta-commands should produce parse errors (not fall through to raw execution).
         // Skip "proxy" because it uses trailing_var_arg (accepts any args by design).
         for cmd in core::constants::RTK_META_COMMANDS {
-            if matches!(*cmd, "proxy" | "run" | "rewrite" | "session") {
+            if matches!(*cmd, "proxy" | "run" | "rewrite" | "session" | "network-audit") {
                 continue; // these use trailing_var_arg (accept any args by design)
             }
             let result = Cli::try_parse_from(["rtk", cmd, "--nonexistent-flag-xyz"]);

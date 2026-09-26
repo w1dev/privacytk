@@ -96,10 +96,16 @@ pub(crate) fn resolved_tee_dir() -> Option<PathBuf> {
 }
 
 fn get_tee_dir(cfg: &RetrieverConfig) -> Option<PathBuf> {
+    if crate::core::ephemeral::is_active() {
+        // Force a fresh dir under /tmp on every ephemeral run; the parent
+        // dir is removed at process exit by EphemeralGuard.
+        let _ = crate::core::ephemeral::ensure_root();
+        return Some(crate::core::ephemeral::tee_dir());
+    }
     if let Ok(dir) = std::env::var("RTK_TEE_DIR") {
         return Some(PathBuf::from(dir));
     }
-    if let Some(ref dir) = cfg.tee_directory {
+    if let Some(dir) = &cfg.tee_directory {
         return Some(dir.clone());
     }
     dirs::data_local_dir().map(|d| d.join(RTK_DATA_DIR).join("tee"))

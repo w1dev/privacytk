@@ -169,10 +169,13 @@ fn gunzip(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn db_path(cfg: &RetrieverConfig) -> Result<PathBuf> {
+    if crate::core::ephemeral::is_active() {
+        return Ok(PathBuf::from(":memory:"));
+    }
     if let Ok(p) = std::env::var("RTK_RECALL_DB") {
         return Ok(PathBuf::from(p));
     }
-    if let Some(ref p) = cfg.database_path {
+    if let Some(p) = &cfg.database_path {
         return Ok(p.clone());
     }
     // A test that names no store must never reach the developer's own: its rows
@@ -188,13 +191,17 @@ fn db_path(cfg: &RetrieverConfig) -> Result<PathBuf> {
 
 fn open(cfg: &RetrieverConfig) -> Result<Connection> {
     let path = db_path(cfg)?;
-    if let Some(parent) = path.parent() {
-        let _ = crate::core::utils::create_private_dir(parent);
+    let ephemeral = path == PathBuf::from(":memory:");
+    if !ephemeral {
+        if let Some(parent) = path.parent() {
+            let _ = crate::core::utils::create_private_dir(parent);
+        }
+        crate::core::utils::open_private(std::fs::OpenOptions::new().write(true).create(true), &path)
+            .with_context(|| format!("pre-create private recall DB: {}", path.display()))?;
     }
-    crate::core::utils::open_private(std::fs::OpenOptions::new().write(true).create(true), &path)
-        .with_context(|| format!("pre-create private recall DB: {}", path.display()))?;
     let conn = Connection::open(&path).with_context(|| format!("open {}", path.display()))?;
-    // best-effort: NFS / read-only filesystems may reject WAL
+    // best-effort: NFS / read-only filesystems may reject WAL; in-memory DBs
+    // ignore WAL altogether.
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
     init_schema(&conn)?;
     Ok(conn)
@@ -209,7 +216,11 @@ fn with_open<T>(cfg: &RetrieverConfig, f: impl FnOnce(&Connection) -> Result<T>)
     let path = db_path(cfg)?;
     CONN_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        let reuse = matches!(&*cache, Some((p, _)) if *p == path && path.exists());
+        // For `:memory:` the cache slot is keyed by the literal string, which
+        // matches every call in this process. That is exactly the right
+        // behaviour: the single shared in-memory DB survives for the lifetime
+        // of the thread.
+        let reuse = matches!(&*cache, Some((p, _)) if *p == path);
         if !reuse {
             *cache = Some((path.clone(), open(cfg)?));
         }
@@ -220,6 +231,10 @@ fn with_open<T>(cfg: &RetrieverConfig, f: impl FnOnce(&Connection) -> Result<T>)
 
 fn open_existing(cfg: &RetrieverConfig) -> Result<Option<Connection>> {
     let path = db_path(cfg)?;
+    if path == PathBuf::from(":memory:") {
+        // In-memory DB always exists conceptually; return a fresh handle.
+        return Ok(Some(open(cfg)?));
+    }
     if !path.exists() {
         return Ok(None);
     }

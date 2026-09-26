@@ -43,11 +43,14 @@ violations=0
 # --- 1. ureq must not return -----------------------------------------------
 echo "→ checking for ureq re-introduction"
 # Source-level usages (ureq::post, ureq::get, use ureq) and the Cargo.toml
-# dependency. The dep declaration line and any code that touches the crate
-# are both forbidden.
+# dependency. We exclude lines that are doc comments or `//` comments
+# inside the diff so this script's own prose does not trip itself.
 ureq_hits="$(git diff "$BASE_REF"...HEAD -- \
     ':!Cargo.lock' \
-    | grep -nE '^[\+].*(\bureq::|\buse ureq\b|^\+ureq\s*=)' || true)"
+    | grep -nE '^[\+].*(\bureq::|\buse ureq\b|^\+ureq\s*=)' \
+    | grep -vE '^[^:]*:\+ *(//|\*|#[^!])' \
+    | grep -vE '^[^:]*:\+- ' \
+    || true)"
 if [[ -n "$ureq_hits" ]]; then
     echo "  ✗ ureq references introduced:"
     echo "$ureq_hits" | sed 's/^/    /'
@@ -100,6 +103,7 @@ echo "→ checking fork-owned files"
 required_files=(
     "src/core/network_guard.rs"
     "src/core/audit.rs"
+    "src/core/dedup.rs"
     "docs/CORPORATE.md"
     "scripts/check-fork-drift.sh"
 )
@@ -131,6 +135,7 @@ marker_files=(
     "Cargo.toml"
     "src/core/network_guard.rs"
     "src/core/audit.rs"
+    "src/core/dedup.rs"
 )
 marker_needles=(
     'pub const RTK_DATA_DIR: &str = "privacytk"'
@@ -138,6 +143,7 @@ marker_needles=(
     'name = "privacytk"'
     'default_deny'
     'Local secrets/PII scanner'
+    'PRIVACYTK_DEDUP'
 )
 marker_missing=0
 for i in "${!marker_files[@]}"; do
