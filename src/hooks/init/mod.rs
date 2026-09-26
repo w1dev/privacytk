@@ -741,62 +741,28 @@ pub fn save_telemetry_consent(accepted: bool) -> Result<()> {
 }
 
 fn prompt_telemetry_consent() -> Result<()> {
-    use std::io::{self, BufRead, IsTerminal};
-
-    let config = crate::core::config::Config::load().unwrap_or_default();
-    match config.telemetry.consent_given {
-        Some(true) => return Ok(()),
-        Some(false) => return Ok(()),
-        None => {}
-    }
-
-    // Explicit opt-out must short-circuit before the TTY heuristic: some
-    // non-interactive environments (devcontainer `postCreateCommand`, certain
-    // CI agents) hand rtk a pseudo-TTY, so `is_terminal()` returns true even
-    // though no human is available to answer — the prompt then hangs forever.
-    // Setting `RTK_TELEMETRY_DISABLED=1` is the documented workaround, so the
-    // init prompt has to honour it too, not only `telemetry::maybe_ping`.
+    // The corporate fork compiles telemetry out entirely. There is nothing
+    // to enable, nothing to disable, and nothing to acknowledge. We honour
+    // any pre-recorded consent in config.toml (so re-running `init` does
+    // not lose state) and we honour the `RTK_TELEMETRY_DISABLED` /
+    // `PRIVACYTK_TELEMETRY_DISABLED` env overrides, but we never ask the
+    // user a question and we never print upstream marketing text.
     if crate::core::telemetry_cmd::telemetry_disabled_by_env() {
         return Ok(());
     }
 
-    if !io::stdin().is_terminal() {
-        return Ok(());
+    let config = crate::core::config::Config::load().unwrap_or_default();
+    match config.telemetry.consent_given {
+        Some(choice) => {
+            save_telemetry_consent(choice)?;
+        }
+        None => {
+            // First install: record "no" implicitly. The user can flip it
+            // later via `privacytk telemetry disable` / `enable` (those
+            // subcommands stay for source compatibility but are no-ops).
+            save_telemetry_consent(false)?;
+        }
     }
-
-    eprintln!();
-    eprintln!("--- Telemetry ---");
-    eprintln!("RTK collects anonymous usage metrics once per day to improve filters.");
-    eprintln!();
-    eprintln!("  What:    command names (not arguments), token savings, OS, version");
-    eprintln!("  Why:     prioritize filter development for the most-used commands");
-    eprintln!("  Who:     RTK AI Labs, contact@rtk-ai.app");
-    eprintln!("  Rights:  disable anytime with `rtk telemetry disable`,");
-    eprintln!("           request erasure with `rtk telemetry forget`");
-    eprintln!("  Details: https://github.com/rtk-ai/rtk/blob/master/docs/TELEMETRY.md");
-    eprintln!();
-    eprint!("Enable anonymous telemetry? [y/N] ");
-
-    let stdin = io::stdin();
-    let mut line = String::new();
-    stdin
-        .lock()
-        .read_line(&mut line)
-        .context("Failed to read user input")?;
-
-    let accepted = {
-        let response = line.trim().to_lowercase();
-        response == "y" || response == "yes"
-    };
-
-    save_telemetry_consent(accepted)?;
-
-    if accepted {
-        eprintln!("  Telemetry enabled. Disable anytime: rtk telemetry disable");
-    } else {
-        eprintln!("  Telemetry disabled.");
-    }
-
     Ok(())
 }
 
