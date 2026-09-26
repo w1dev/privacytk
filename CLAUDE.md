@@ -15,10 +15,10 @@ upstream `rtk` CLI surface** (same subcommands, same flags, same hooks),
 but with three corporate guarantees layered on top:
 
 1. **No telemetry.** The upstream `telemetry::maybe_ping` is removed.
-   `privacytk telemetry status` reports the build does not transmit.
+   ``pkt` telemetry status` reports the build does not transmit.
 2. **Default-deny network.** Every outbound URL must pass an explicit
-   allowlist (`~/.config/privacytk/network.toml`).
-3. **Local secrets/PII scanner.** `privacytk audit <path>` walks a tree
+   allowlist (`~/.config/pkt/network.toml`).
+3. **Local secrets/PII scanner.** ``pkt` audit <path>` walks a tree
    and reports hits with redacted previews.
 
 The README has the full threat model. The "How to test" section has
@@ -49,7 +49,7 @@ about to do any of these, **stop and confirm with the operator**:
   fails.
 - Re-add `homepage` or `repository` URLs to `Cargo.toml` pointing at
   `rtk-ai/rtk`. Drift test fails.
-- Re-add the pre-commit audit gate in `privacytk init -g`. The drift
+- Re-add the pre-commit audit gate in ``pkt` init -g`. The drift
   test asserts the constant `PRE_COMMIT_GATE_HOOK_COMMAND` is absent;
   if you re-enable, also flip that assertion.
 
@@ -76,9 +76,9 @@ cargo test --bin privacytk --release core::ephemeral      # ephemeral mode
 cargo test --bin privacytk --release core::network_guard # allowlist
 
 # Smoke battery (manual, must pass before release)
-./target/release/privacytk telemetry status | grep 'this build'
-./target/release/privacytk verify-network api.example.com | grep 'deny'
-./target/release/privacytk audit /tmp/_smoke --human
+./target/release/`pkt` telemetry status | grep 'this build'
+./target/release/`pkt` verify-network api.example.com | grep 'deny'
+./target/release/`pkt` audit /tmp/_smoke --human
 # zero outbound sockets during verify-network
 
 # Drift
@@ -153,7 +153,7 @@ git log --oneline | head -5  # Spot-check that commits are local
 ```
 
 The fork's git log should show commits like `fork: install SessionStart...`,
-`fork: privacytk cfd + cfd-context...`, `fork: drop pre-commit-gate...`.
+`fork: `pkt` cfd + cfd-context...`, `fork: drop pre-commit-gate...`.
 If you see commits referencing `rtk-ai/rtk` URLs without a "fork:" prefix,
 you are on the wrong checkout.
 

@@ -14,7 +14,7 @@ Inherited from upstream: `config`, `tracking`, `toml_filter`, `tee`, `truncate`,
 
 Fork-only modules (all in `src/core/`): `network_guard`, `audit`, `cfd`, `ephemeral`, `dedup`, `network_audit`, `drift_check`. See [docs/CORPORATE.md](../../docs/CORPORATE.md) for the corporate guarantees each one provides.
 
-The telemetry module exists (`telemetry`, `telemetry_cmd`) but is dead code — the drift check enforces that no HTTP client (`ureq`, `reqwest`, etc.) is in `Cargo.toml`, and `telemetry::endpoint_url()` always returns `None`. The CLI subcommand `privacytk telemetry status` reports the build does not transmit.
+The telemetry module exists (`telemetry`, `telemetry_cmd`) but is dead code — the drift check enforces that no HTTP client (`ureq`, `reqwest`, etc.) is in `Cargo.toml`, and `telemetry::endpoint_url()` always returns `None`. The CLI subcommand ``pkt` telemetry status` reports the build does not transmit.
 
 Does **not** own: command-specific filtering logic (that's `cmds/`), hook lifecycle management (that's `src/hooks/`), or analytics dashboards (that's `analytics/`).
 

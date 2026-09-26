@@ -10,7 +10,7 @@ The **lifecycle management** layer for LLM agent hooks: install, uninstall, veri
 
 Inherited from upstream: 11 agents (Claude Code, Cursor, Codex, Gemini CLI, Trae, Pi, OMP, Hermes, Factory Droid, Mistral Vibe, GitHub Copilot CLI), SHA-256 integrity verification, hook version checking, audit log analysis, `privacytk rewrite` CLI entry point, and TOML filter trust management.
 
-Fork-only: `privacytk init -g` installs **two** hooks by default (`PreToolUse` for Bash rewrite + `SessionStart` for CFD context injection). The upstream-style pre-commit audit gate is **not** installed by default; see [docs/CORPORATE.md §2d](../../docs/CORPORATE.md).
+Fork-only: ``pkt` init -g` installs **two** hooks by default (`PreToolUse` for Bash rewrite + `SessionStart` for CFD context injection). The upstream-style pre-commit audit gate is **not** installed by default; see [docs/CORPORATE.md §2d](../../docs/CORPORATE.md).
 
 Does **not** own: the deployed hook scripts themselves (that's `hooks/`), the rewrite pattern registry (that's `discover/`), or command filtering (that's `cmds/`).
 

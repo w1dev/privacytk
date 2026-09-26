@@ -1,6 +1,6 @@
 # Security policy
 
-privacytk is a corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk)
+`pkt` is a corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk)
 v0.49.0. The fork does not run its own security disclosure process —
 it inherits the upstream's policy at `rtk-ai/rtk/blob/master/SECURITY.md`
 and re-uses the same vulnerability reporting channels.

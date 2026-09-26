@@ -1,6 +1,6 @@
 # Corporate deployment guide
 
-> **Provenance.** privacytk is a corporate fork of
+> **Provenance.** `pkt` is a corporate fork of
 > [rtk-ai/rtk v0.49.0](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0).
 > All token-compression filters, hook scripts, and benchmark suite come
 > from upstream. The corporate modifications (telemetry removal,
@@ -11,7 +11,7 @@
 > audits.
 
 This document covers the operational concerns that aren't in the README:
-image packaging, policy files, and what to audit when you onboard privacytk
+image packaging, policy files, and what to audit when you onboard `pkt`
 into a regulated environment.
 
 ## 1. Threat model recap

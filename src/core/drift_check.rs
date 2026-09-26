@@ -7,6 +7,10 @@
 //!
 //! If any of these fail, the corporate guarantees have been broken by a
 //! careless rebase or upstream merge. Investigate before merging.
+//
+// Note: tests in this module that previously asserted `privacytk` as the
+// binary name have been updated to assert `pkt`. The legacy `privacytk`
+// binary is honored as a deprecated alias of `pkt` for one release cycle.
 
 use std::fs;
 use std::path::Path;
@@ -82,30 +86,30 @@ fn ccusage_drops_npx_fallback() {
 }
 
 #[test]
-fn data_dir_is_privacytk_not_rtk() {
+fn data_dir_is_pkt_not_rtk() {
     let c = read("src/core/constants.rs");
     assert!(
-        c.contains("pub const RTK_DATA_DIR: &str = \"privacytk\""),
-        "RTK_DATA_DIR must be renamed to \"privacytk\" so the fork does \
-         not collide with any upstream rtk install"
+        c.contains("pub const RTK_DATA_DIR: &str = \"pkt\""),
+        "RTK_DATA_DIR must be renamed to \"pkt\" so the fork does not \
+         collide with any upstream rtk install"
     );
 }
 
 #[test]
-fn binary_name_in_cli_metadata_is_privacytk() {
+fn binary_name_in_cli_metadata_is_pkt() {
     let main = read("src/main.rs");
     assert!(
-        main.contains("name = \"privacytk\""),
-        "Cli clap metadata must declare name = \"privacytk\""
+        main.contains("name = \"pkt\""),
+        "Cli clap metadata must declare name = \"pkt\""
     );
 }
 
 #[test]
-fn package_name_in_cargo_toml_is_privacytk() {
+fn package_name_in_cargo_toml_is_pkt() {
     let cargo = read("Cargo.toml");
     assert!(
-        cargo.lines().any(|l| l.trim_start().starts_with("name = \"privacytk\"")),
-        "Cargo.toml package name must be \"privacytk\""
+        cargo.lines().any(|l| l.trim_start().starts_with("name = \"pkt\"")),
+        "Cargo.toml package name must be \"pkt\""
     );
 }
 

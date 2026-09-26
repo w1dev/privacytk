@@ -51,7 +51,7 @@ A new module should:
 4. Not make outbound network calls unless it goes through
    `network_guard::allow(url)` first.
 5. Not write to disk outside the ephemeral temp dir or the standard
-   `~/.local/share/privacytk/` paths enumerated by `ephemeral::enumerate_state_paths`.
+   `~/.local/share/pkt/` paths enumerated by `ephemeral::enumerate_state_paths`.
 
 When you add a module:
 
@@ -104,9 +104,9 @@ bash scripts/check-fork-drift.sh HEAD~1
 The four-smoke battery from the README is mandatory before a release:
 
 ```bash
-./target/release/privacytk telemetry status | grep 'this build'
-./target/release/privacytk verify-network api.example.com | grep 'deny'
-./target/release/privacytk audit /tmp/_smoke --human
+./target/release/`pkt` telemetry status | grep 'this build'
+./target/release/`pkt` verify-network api.example.com | grep 'deny'
+./target/release/`pkt` audit /tmp/_smoke --human
 lsof -p $(${BIN} verify-network api.example.com & echo $!) | grep -c IPv   # 0 sockets
 ```
 

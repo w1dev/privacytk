@@ -1,4 +1,4 @@
-pub const RTK_DATA_DIR: &str = "privacytk";
+pub const RTK_DATA_DIR: &str = "pkt";
 pub const HISTORY_DB: &str = "history.db";
 pub const RECALL_DB: &str = "recall.db";
 pub const CONFIG_TOML: &str = "config.toml";

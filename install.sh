@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
-# install.sh — corporate fork of rtk-ai/rtk v0.49.0, drop-in CLI that
-# filters and compresses command output for LLM-agent workflows.
+# install.sh — pkt, the corporate fork of rtk-ai/rtk v0.49.0. CLI proxy
+# that filters and compresses command output for LLM-agent workflows.
 #
 # Usage:
 #   install.sh                    # install to ~/.local/bin (or /usr/local/bin if root)
 #   install.sh --system           # force /usr/local/bin
 #   install.sh --user            # force ~/.local/bin
-#   install.sh --agent <name>    # also run `privacytk init -g --agent <name>`
+#   install.sh --agent <name>    # also run `pkt init -g --agent <name>`
 #   install.sh --ref <git-sha>    # pin to a specific commit (default: HEAD)
 #   install.sh --build            # force local source build even if a pre-built
 #                                  binary is available for this OS/arch
@@ -24,13 +24,18 @@
 #   6  unsupported Rust toolchain (and no pre-built binary)
 #
 # Environment overrides:
-#   PRIVACYTK_REF        git ref to pin (default: HEAD of the local clone)
-#   PRIVACYTK_PREFIX     install prefix (default: ~/.local/bin or /usr/local/bin)
-#   PRIVACYTK_REPO       git URL to clone (default: file:// of the current dir
+#   PKT_REF              git ref to pin (default: HEAD of the local clone)
+#   PKT_PREFIX           install prefix (default: ~/.local/bin or /usr/local/bin)
+#   PKT_REPO             git URL to clone (default: file:// of the current dir
 #                         if running from a clone, else
 #                         https://github.com/albertomarturelo/rtk.git,
 #                         which the operator is expected to redirect via
 #                         their internal mirror — see CORPORATE.md)
+#
+# Deprecated (still honored):
+#   PRIVACYTK_*          alias of PKT_*. Kept so existing scripts that set
+#                         PRIVACYTK_EPHEMERAL=1 / PRIVACYTK_DEDUP=1 continue
+#                         to work after the rename to `pkt`.
 
 set -eu
 
@@ -99,8 +104,8 @@ TARGET="${ARCH_TAG}-${OS_TAG}"
 # ---- 3. Install prefix -----------------------------------------------------
 
 if [ -z "$PREFIX" ]; then
-    if [ -n "${PRIVACYTK_PREFIX:-}" ]; then
-        PREFIX="${PRIVACYTK_PREFIX}"
+    if [ -n "${PKT_PREFIX:-${PRIVACYTK_PREFIX:-}}" ]; then
+        PREFIX="${PKT_PREFIX:-${PRIVACYTK_PREFIX:-}}"
     elif [ "$(id -u 2>/dev/null || echo 0)" -eq 0 ] && [ -z "$USER_MODE" ]; then
         PREFIX="/usr/local/bin"
     elif [ "$USER_MODE" = "system" ]; then
@@ -168,7 +173,7 @@ fi
 
 # ---- 5. Toolchain ---------------------------------------------------------
 
-# privacytk requires Rust 1.91+ (matches rust-version in Cargo.toml). If
+# pkt requires Rust 1.91+ (matches rust-version in Cargo.toml). If
 # cargo is missing or too old, the installer offers to install it via
 # rustup. The operator can opt in/out with flags or by answering the
 # interactive prompt. The `INSTALL_RUST` flag is set by the main
@@ -252,7 +257,7 @@ if ! require_toolchain; then
     fi
 fi
 
-printf '> building privacytk from %s\n' "$SOURCE_DIR"
+printf '> building pkt from %s\n' "$SOURCE_DIR"
 cd "$SOURCE_DIR"
 
 if ! cargo build --release 2>&1 | tail -20; then
@@ -260,7 +265,7 @@ if ! cargo build --release 2>&1 | tail -20; then
     exit 3
 fi
 
-BIN_PATH="$SOURCE_DIR/target/release/privacytk"
+BIN_PATH="$SOURCE_DIR/target/release/pkt"
 if [ ! -x "$BIN_PATH" ]; then
     printf 'binary not produced at %s\n' "$BIN_PATH" >&2
     exit 3
@@ -270,7 +275,7 @@ fi
 
 printf '> installing to %s\n' "$PREFIX"
 mkdir -p "$PREFIX"
-if ! install -m 0755 "$BIN_PATH" "$PREFIX/privacytk"; then
+if ! install -m 0755 "$BIN_PATH" "$PREFIX/pkt"; then
     printf 'install failed; check write permissions on %s.\n' "$PREFIX" >&2
     exit 4
 fi
@@ -280,7 +285,7 @@ case ":$PATH:" in
     *":$PREFIX:"*) ;;
     *)
         if [ -w /etc/paths.d ] && [ "$PREFIX" = "/usr/local/bin" ]; then
-            printf '%s\n' "$PREFIX" > /etc/paths.d/privacytk 2>/dev/null || true
+            printf '%s\n' "$PREFIX" > /etc/paths.d/pkt 2>/dev/null || true
         fi
         printf '\nNOTE: %s is not on your PATH.\n' "$PREFIX" >&2
         printf 'Add to ~/.zshrc / ~/.bashrc:\n' >&2
@@ -291,7 +296,7 @@ esac
 # ---- 7. Verify (optional, --verify) ---------------------------------------
 
 if [ "$VERIFY" -eq 1 ]; then
-    BIN="$PREFIX/privacytk"
+    BIN="$PREFIX/pkt"
     if [ ! -x "$BIN" ]; then BIN="$BIN_PATH"; fi
     printf '\n> running smoke battery\n'
     if ! "$BIN" telemetry status | grep -q 'this build has no telemetry endpoint'; then
@@ -308,16 +313,16 @@ fi
 # ---- 8. Optional agent hook install (--agent <name>) ----------------------
 
 if [ -n "$AGENT" ]; then
-    BIN="$PREFIX/privacytk"
+    BIN="$PREFIX/pkt"
     if [ ! -x "$BIN" ]; then BIN="$BIN_PATH"; fi
-    printf '\n> running privacytk init -g --agent %s\n' "$AGENT"
+    printf '\n> running pkt init -g --agent %s\n' "$AGENT"
     if ! "$BIN" init -g --agent "$AGENT" --auto-patch; then
         printf 'init failed; check the binary with `%s --version` first.\n' "$BIN" >&2
         exit 5
     fi
 fi
 
-printf '\nprivacytk installed at: %s/privacytk\n' "$PREFIX"
-printf 'verify:    %s --version\n' "$PREFIX/privacytk"
-printf 'smoke:     %s telemetry status\n' "$PREFIX/privacytk"
-printf 'uninstall: rm %s/privacytk\n' "$PREFIX"
+printf '\npkt installed at: %s/pkt\n' "$PREFIX"
+printf 'verify:    %s --version\n' "$PREFIX/pkt"
+printf 'smoke:     %s telemetry status\n' "$PREFIX/pkt"
+printf 'uninstall: rm %s/pkt\n' "$PREFIX"

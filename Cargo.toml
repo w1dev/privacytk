@@ -1,5 +1,5 @@
 [package]
-name = "privacytk"
+name = "pkt"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
@@ -74,16 +74,16 @@ strip = true
 maintainer = "Corporate Privacy Tooling"
 copyright = "2026 Corporate Privacy Tooling"
 license-file = ["LICENSE", "0"]
-extended-description = "privacytk filters and compresses command outputs before they reach your LLM context. Corporate fork: zero outbound by default, secrets/PII audit, allowlist-based network guard."
+extended-description = "pkt filters and compresses command outputs before they reach your LLM context. Corporate fork: zero outbound by default, secrets/PII audit, allowlist-based network guard."
 section = "utility"
 priority = "optional"
 assets = [
-    ["target/release/privacytk", "usr/bin/", "755"],
+    ["target/release/pkt", "usr/bin/", "755"],
 ]
 # cargo-generate-rpm configuration
 [package.metadata.generate-rpm]
 assets = [
-    { source = "target/release/privacytk", dest = "/usr/bin/privacytk", mode = "755" },
+    { source = "target/release/pkt", dest = "/usr/bin/pkt", mode = "755" },
 ]
 
 [lints.rust]

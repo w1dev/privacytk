@@ -146,9 +146,9 @@ marker_files=(
     "src/core/cfd.rs"
 )
 marker_needles=(
-    'pub const RTK_DATA_DIR: &str = "privacytk"'
-    'name = "privacytk"'
-    'name = "privacytk"'
+    'pub const RTK_DATA_DIR: &str = "pkt"'
+    'name = "pkt"'
+    'name = "pkt"'
     'default_deny'
     'Local secrets/PII scanner'
     'PRIVACYTK_DEDUP'

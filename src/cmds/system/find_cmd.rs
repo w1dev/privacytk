@@ -254,7 +254,7 @@ fn run_compress(
 ) -> Result<i32> {
     let timer = tracking::TimedExecution::start();
     if verbose > 0 {
-        eprintln!("find: results from find, compressed by rtk");
+        eprintln!("find: results from find, compressed by pkt");
     }
     let max_results = max.unwrap_or(CAP_INVENTORY);
     let max_explicit = max.is_some();

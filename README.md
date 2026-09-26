@@ -1,14 +1,15 @@
-# privacytk
+# pkt
 
-> Forked from [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) at
-> [v0.49.0](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0).
-> privacytk keeps the upstream's compression filters and adds the corporate
-> guarantees below. Apache-2.0, inherited from upstream. The
-> `forked from` clause is the only place this README names the upstream;
-> the binary, subcommands, hooks, and configuration all live under the
-> `privacytk` namespace.
+> `pkt` is the corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) at
+> [v0.49.0](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0). It keeps the
+> upstream's compression filters and adds three corporate guarantees below.
+> Apache-2.0, inherited from upstream. The `forked from` clause is the only
+> place this README names the upstream; the binary, subcommands, hooks,
+> and configuration all live under the `pkt` namespace. The legacy name
+> `privacytk` is honored as a deprecated alias of the `pkt` binary for one
+> release cycle, then removed.
 
-A corporate fork of [rtk](https://github.com/rtk-ai/rtk) tuned for environments
+`pkt` is the corporate fork of [rtk](https://github.com/rtk-ai/rtk) tuned for environments
 where the CLI cannot, by policy, exfiltrate code, secrets, or usage data.
 
 The fork preserves 100% of the upstream's token-compression filters for
@@ -20,9 +21,9 @@ LLM-agent workflows (`git`, `cargo`, `cargo test`, `pytest`, `go test`,
    `(not applicable; this build has no telemetry endpoint)`.
 2. **Default-deny network.** Every outbound URL must pass
    `core::network_guard`, which reads an explicit allowlist from
-   `~/.config/privacytk/network.toml`. The guard refuses to load any
+   `~/.config/pkt/network.toml`. The guard refuses to load any
    `default_deny = false` policy.
-3. **Local secrets & PII scanner.** `privacytk audit <dir>` walks a tree and
+3. **Local secrets & PII scanner.** `pkt audit <dir>` walks a tree and
    reports matches (AWS keys, GitHub tokens, JWTs, IBANs, PAN-shaped runs, etc.)
    with redacted previews. Never opens a socket.
 
@@ -48,7 +49,7 @@ Requires Rust 1.91 or newer (matches `rust-version` in `Cargo.toml`).
 
 ```bash
 cargo build --release
-# binary at target/release/privacytk
+# binary at target/release/pkt
 ```
 
 The toolchain is keg-only under Homebrew; if `cargo` is not on `PATH`, prepend
@@ -64,7 +65,7 @@ guards against real regressions, not warning churn.
 
 ## Distribution & delivery
 
-privacytk is delivered as a single static-ish Rust binary. There is no
+`pkt` is delivered as a single static-ish Rust binary. There is no
 runtime dependency beyond libc (Linux/macOS) or the Windows system DLLs
 that `windows-sys` already links.
 
@@ -72,7 +73,7 @@ that `windows-sys` already links.
 
 | Channel | When to use | Build artefact |
 |---|---|---|
-| **Local developer build** | Quick smoke-test, iterating on the source | `cargo build --release` → `target/release/privacytk` |
+| **Local developer build** | Quick smoke-test, iterating on the source | `cargo build --release` → `target/release/pkt` |
 | **CI artefact** (preferred) | Reproducible builds for the corporate image | The CI pipeline builds, signs, and uploads per-platform binaries |
 | **OS package** | Distribution via apt/dnf/brew within the corp image | `.deb` (cargo-deb) or `.rpm` (cargo-generate-rpm), or Homebrew formula pinned to a tap |
 
@@ -86,7 +87,7 @@ The canonical example lives in `.github/workflows/fork-ci.yml`. The
 pipeline:
 
 1. Runs `scripts/check-fork-drift.sh` on the PR diff.
-2. Runs `cargo test --bin privacytk --release` (all unit tests).
+2. Runs `cargo test --bin pkt --release` (all unit tests).
 3. Builds release binaries per OS/arch.
 4. Runs the four smoke checks from [How to test](#how-to-test).
 5. Uploads binaries + sha256 sums as release artefacts.
@@ -110,17 +111,17 @@ Every release artefact should be signed. The recommended chain is:
 cargo build --release
 
 # 2. Hash.
-sha256sum target/release/privacytk > privacytk.sha256
+sha256sum target/release/pkt > pkt.sha256
 
 # 3. Sign (adjust key/cert paths to your PKI).
-cosign sign-blob --key cosign.key --output-signature privacytk.sig \
-    target/release/privacytk
+cosign sign-blob --key cosign.key --output-signature pkt.sig \
+    target/release/pkt
 
 # 4. Bundle.
-tar -czf privacytk-<version>-<target>.tar.gz -C target/release privacytk
+tar -czf pkt-<version>-<target>.tar.gz -C target/release pkt
 ```
 
-The operator verifies with `cosign verify-blob --key cosign.pub --signature privacytk.sig privacytk`.
+The operator verifies with `cosign verify-blob --key cosign.pub --signature pkt.sig pkt`.
 
 ---
 
@@ -143,7 +144,7 @@ removed?". POSIX-portable bash 3.2 compatible (no `declare -A`).
 ### 2. Drift unit tests (cargo, no network)
 
 ```bash
-cargo test --bin privacytk --release core::drift_check
+cargo test --bin pkt --release core::drift_check
 ```
 
 21 source-level invariants: `ureq` is absent from `Cargo.toml`, the telemetry
@@ -153,7 +154,7 @@ via `insert_corporate_hooks`, etc. Runs in CI without external dependencies.
 ### 3. Full unit test suite
 
 ```bash
-cargo test --bin privacytk --release
+cargo test --bin pkt --release
 ```
 
 All modules: `audit` (7), `cfd` (12), `dedup` (6), `drift_check` (21),
@@ -167,7 +168,7 @@ Run these four checks on every binary that will ship. Each is a
 one-liner that catches a class of breakage the unit tests miss.
 
 ```bash
-BIN=./target/release/privacytk
+BIN=./target/release/pkt
 
 # 1. Telemetry is compiled out (must NOT print a URL).
 $BIN telemetry status
@@ -222,7 +223,7 @@ $BIN cfd "repository" --repo /tmp/cfd  # one match
 $BIN cfd-context --repo /tmp/cfd --top-adrs 3  # session-start bundle
 
 # 3. Ephemeral mode touches no FS.
-PRIVACYTK_EPHEMERAL=1 $BIN ls .     # runs, ~/.local/share/privacytk/ unchanged
+PRIVACYTK_EPHEMERAL=1 $BIN ls .     # runs, ~/.local/share/pkt/ unchanged
 
 # 4. Audit finds a planted secret.
 mkdir -p /tmp/_audit_smoke
@@ -247,6 +248,8 @@ The simplest path is the bundled installer. From a clone of this repo:
 ./install.sh --verify --agent claude
 ```
 
+The install script installs the binary as **`pkt`** at the chosen prefix.
+
 The script auto-detects OS and arch, requires Rust 1.91+, builds the
 release binary, and installs it. Pass `--user` to force `~/.local/bin`
 or `--system` to force `/usr/local/bin` (root-only).
@@ -263,10 +266,12 @@ or `--system` to force `/usr/local/bin` (root-only).
 
 Override the prompt with `--rust-install` (always install) or
 `--no-rust-install` (always abort). Disable the prompt entirely with
-`PRIVACYTK_NO_RUST_PROMPT=1` (CI/automation).
+`PKT_NO_RUST_PROMPT=1` (the legacy `PRIVACYTK_NO_RUST_PROMPT=1` is
+also honored for backwards compatibility).
 
 If you do not have a clone, the script also accepts a git URL via
-`PRIVACYTK_REPO=https://your-internal-mirror/privacytk.git ./install.sh`.
+`PKT_REPO=https://your-internal-mirror/pkt.git ./install.sh`. The legacy
+`PRIVACYTK_REPO` is also honored.
 For developers who want the manual path:
 
 ```bash
@@ -276,22 +281,22 @@ brew install rustup        # macOS
 rustup default 1.91.0
 
 # 2. Clone and build.
-git clone https://github.com/<your-org>/privacytk.git
-cd privacytk
+git clone https://github.com/<your-org>/pkt.git
+cd pkt
 cargo build --release
 
 # 3. Install to a directory on PATH.
-install -m 0755 target/release/privacytk ~/.local/bin/privacytk   # macOS / Linux
-# or: sudo cp target/release/privacytk /usr/local/bin/privacytk
+install -m 0755 target/release/pkt ~/.local/bin/pkt   # macOS / Linux
+# or: sudo cp target/release/pkt /usr/local/bin/pkt
 
 # 4. Verify.
-privacytk --version
-# expected: privacytk 0.1.0
-privacytk telemetry status | grep 'this build'
+pkt --version
+# expected: pkt 0.1.0
+pkt telemetry status | grep 'this build'
 # expected: "this build has no telemetry endpoint"
 ```
 
-The first run writes nothing to `~/.local/share/privacytk/` until you
+The first run writes nothing to `~/.local/share/pkt/` until you
 invoke a command that touches the tracking DB. Run with
 `PRIVACYTK_EPHEMERAL=1` to keep your laptop clean.
 
@@ -300,12 +305,12 @@ invoke a command that touches the tracking DB. Run with
 After Path 1 completes:
 
 ```bash
-privacytk init -g --agent claude --auto-patch
+pkt init -g --agent claude --auto-patch
 ```
 
 This installs two hooks into `~/.claude/settings.json`:
 
-- `PreToolUse` (`Bash`): rewrites `git status` → `privacytk git status`
+- `PreToolUse` (`Bash`): rewrites `git status` → `pkt git status`
   (compression auto-applied to every Bash command the agent runs).
 - `SessionStart` (`""`): emits the CFD context bundle at session start
   so the agent opens with the right context already loaded.
@@ -315,8 +320,8 @@ Restart Claude Code. To verify:
 ```bash
 cat ~/.claude/settings.json | grep -E 'command":' | sort -u
 # expected:
-#   "command": "privacytk hook claude"
-#   "command": "privacytk hook session-start"
+#   "command": "pkt hook claude"
+#   "command": "pkt hook session-start"
 ```
 
 Open a Claude Code session and ask anything about your repo. The agent's
@@ -329,25 +334,25 @@ signing.
 
 ```dockerfile
 FROM your-base:tag
-ARG PRIVACYTK_COMMIT=<git-sha-of-release-tag>
+ARG PKT_COMMIT=<git-sha-of-release-tag>
 
 # 1. Install Rust toolchain.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain 1.91.0 --profile minimal
 
 # 2. Build from source (CI must run this with the tag pinned).
-RUN git clone https://internal.example.com/privacytk.git /src && \
-    cd /src && git checkout "$PRIVACYTK_COMMIT" && \
+RUN git clone https://internal.example.com/pkt.git /src && \
+    cd /src && git checkout "$PKT_COMMIT" && \
     /root/.cargo/bin/cargo build --release && \
-    install -m 0755 /src/target/release/privacytk /usr/local/bin/privacytk
+    install -m 0755 /src/target/release/pkt /usr/local/bin/pkt
 
 # 3. Drop the deny-all allowlist into /etc/skel so every user
 #    inherits the default-deny starting state.
-COPY network.toml /etc/skel/.config/privacytk/network.toml
+COPY network.toml /etc/skel/.config/pkt/network.toml
 
 # 4. (Optional) Install the Claude Code hooks globally so every
 #    developer's first `git status` is compressed automatically.
-RUN privacytk init -g --agent claude --auto-patch
+RUN pkt init -g --agent claude --auto-patch
 # Note: this writes to /root/.claude, which only the build user sees.
 # Per-developer init happens on their first Claude Code session.
 ```
@@ -358,7 +363,7 @@ After any of the three paths, run the four-smoke battery from
 [How to test](#how-to-test):
 
 ```bash
-BIN=privacytk   # or ./target/release/privacytk, /usr/local/bin/privacytk, etc.
+BIN=pkt   # or ./target/release/pkt, /usr/local/bin/pkt, etc.
 $BIN telemetry status | grep 'this build'       # compiled out
 $BIN verify-network api.example.com             # deny
 $BIN audit /tmp/_smoke --human                   # detect with redacted preview
@@ -374,35 +379,35 @@ The fork follows semantic versioning. To update an existing install:
 
 ```bash
 # 1. Pull the new tag.
-cd /path/to/privacytk
+cd /path/to/pkt
 git fetch --tags
 git checkout v0.<next>.<bugfix>
 
 # 2. Rebuild and replace.
 cargo build --release
-install -m 0755 target/release/privacytk ~/.local/bin/privacytk
+install -m 0755 target/release/pkt ~/.local/bin/pkt
 
 # 3. Re-run the drift script against the previous tag to verify the
 #    diff is clean (no reintroduced ureq / ccusage / telemetry POST).
 bash scripts/check-fork-drift.sh v0.<prev>.<bugfix>
 ```
 
-`privacytk init -g` is idempotent — re-running it with a new binary does
+`pkt init -g` is idempotent — re-running it with a new binary does
 not duplicate hooks.
 
 ### Uninstalling
 
 ```bash
 # 1. Remove the hooks (Claude Code example; adapt for your agent).
-privacytk init -g --agent claude --uninstall
+pkt init -g --agent claude --uninstall
 
 # 2. Remove the binary.
-rm ~/.local/bin/privacytk   # or sudo rm /usr/local/bin/privacytk
+rm ~/.local/bin/pkt   # or sudo rm /usr/local/bin/pkt
 
 # 3. Remove user state (optional; only if you do not want the DB to
 #    survive the uninstall).
-rm -rf ~/.local/share/privacytk/
-rm -rf ~/.config/privacytk/
+rm -rf ~/.local/share/pkt/
+rm -rf ~/.config/pkt/
 ```
 
 The drift check + the smoke battery are the recommended post-uninstall
@@ -412,12 +417,13 @@ verification.
 
 ## Install the network allowlist
 
-`privacytk` refuses to talk to anything until you write an allowlist. Default
-location (overridable via `PRIVACYTK_NETWORK_CONFIG`):
+`pkt` refuses to talk to anything until you write an allowlist. Default
+location (overridable via `PKT_NETWORK_CONFIG`; the legacy
+`PRIVACYTK_NETWORK_CONFIG` is also honored):
 
 ```
-~/.config/privacytk/network.toml   (macOS / Linux)
-%APPDATA%\privacytk\network.toml   (Windows)
+~/.config/pkt/network.toml   (macOS / Linux)
+%APPDATA%\pkt\network.toml   (Windows)
 ```
 
 Minimal policy:
@@ -444,23 +450,24 @@ All of the upstream CLI surface works unchanged: `git`, `cargo`, `gh`, `glab`, `
 `docker`, `kubectl`, `ls`, `grep`, `find`, `read`, `err`, `test`, `json`,
 `deps`, `env`, `log`, `diff`, `summary`, `smart`, etc. See the upstream
 README (linked at the top of this file) for the full table — only the names
-`privacytk init` and `privacytk hook` require per-agent path rewrites that
-still target the same hooks directory.
+`pkt init` and `pkt hook` require per-agent path rewrites that
+still target the same hooks directory. The legacy `privacytk` binary
+name is honored as a deprecated alias for one release cycle.
 
 ### New in the fork
 
 | Command | Purpose |
 |---|---|
-| `privacytk audit <path> [--human]` | Local secrets/PII scanner with redacted previews. |
-| `privacytk verify-network [host ...]` | Inspect the network allowlist without opening sockets. |
-| `privacytk where-state [--purge] [--json]` | List every path privacytk can touch on disk. |
-| `privacytk network-audit <cmd>` | Run `<cmd>` under a network sandbox; report blocked attempts. |
-| `privacytk cfd <query> [--id X] [--status S] [--summary]` | CFD-aware ADR lookup. |
-| `privacytk cfd-context [--top-adrs N]` | Build the CFD session-start bundle. |
-| `privacytk dedup [--on \| --off]` | Manage the dedup cache. |
-| `privacytk telemetry status` | Confirm telemetry is compiled out. |
+| `pkt audit <path> [--human]` | Local secrets/PII scanner with redacted previews. |
+| `pkt verify-network [host ...]` | Inspect the network allowlist without opening sockets. |
+| `pkt where-state [--purge] [--json]` | List every path `pkt` can touch on disk. |
+| `pkt network-audit <cmd>` | Run `<cmd>` under a network sandbox; report blocked attempts. |
+| `pkt cfd <query> [--id X] [--status S] [--summary]` | CFD-aware ADR lookup. |
+| `pkt cfd-context [--top-adrs N]` | Build the CFD session-start bundle. |
+| `pkt dedup [--on \| --off]` | Manage the dedup cache. |
+| `pkt telemetry status` | Confirm telemetry is compiled out. |
 
-#### `privacytk audit <path> [--human]`
+#### `pkt audit <path> [--human]`
 
 Walks `<path>` (default `.`) and scans every regular file for matches against
 the pattern table in `src/core/audit.rs`. Files starting with `.git/`, symlinks,
@@ -469,10 +476,10 @@ and binary files (NUL byte heuristic) are skipped.
 - Default: JSON output to stdout, suitable for piping into a CI report.
 - `--human`: human-readable lines `path:line:col  category  redacted-preview`.
 - Exit code: `0` when no hits, `1` when at least one hit. Never blocks a commit
-  (the corporate fork assumes PR + human review; see "What privacytk does
+  (the corporate fork assumes PR + human review; see "What `pkt` does
   not address" below).
 
-#### `privacytk verify-network [host ...] [--reload]`
+#### `pkt verify-network [host ...] [--reload]`
 
 Loads the network policy and prints:
 
@@ -485,7 +492,7 @@ Loads the network policy and prints:
 opened even when hosts are passed** — the verdict is computed purely against
 the allowlist.
 
-#### `privacytk telemetry status|enable|disable|forget`
+#### `pkt telemetry status|enable|disable|forget`
 
 `enable` no longer transmits anything; it asks for an acknowledgement so an
 audit log can record the operator intent. `forget` deletes the (already
@@ -493,12 +500,12 @@ empty) salt file, the marker file, and the local tracking DB.
 
 ### Auto-installed hooks
 
-`privacytk init -g --agent <agent>` installs hooks into the agent's
+`pkt init -g --agent <agent>` installs hooks into the agent's
 settings file. Two hooks ship by default:
 
 | Hook | Matcher | Effect |
 |---|---|---|
-| `PreToolUse` | `Bash` | Rewrites `git status` → `privacytk git status`, etc. (compression auto-applied) |
+| `PreToolUse` | `Bash` | Rewrites `git status` → `pkt git status`, etc. (compression auto-applied) |
 | `SessionStart` | `""` | Emits the CFD context bundle at session start |
 
 No pre-commit gate is installed by default. The corporate fork assumes a
@@ -509,7 +516,7 @@ secret scanning at push time.
 
 ## Threat model
 
-| Channel | Upstream | privacytk |
+| Channel | Upstream | `pkt` (fork) |
 |---|---|---|
 | Daily telemetry POST to upstream collector | yes (opt-in) | **compiled out** |
 | `npx ccusage` fallback in analytics | yes (network call) | **removed** |
@@ -517,12 +524,12 @@ secret scanning at push time.
 | Outbound URL from any filter | unrestricted | **allowlist-only** |
 | Local secrets/PII scanning | none | **built-in** |
 
-What privacytk does *not* address:
+What `pkt` does *not* address:
 
 - The user can still pipe a secret into a `curl`/`wget` filter themselves.
   The fork adds no shim around those commands; treat them as user-invoked
   network actions.
-- The hook rewriter (`privacytk init`) still installs a `~/.claude/hooks/*`
+- The hook rewriter (`pkt init`) still installs a `~/.claude/hooks/*`
   script that calls `privacytk` directly. If you replace `privacytk`'s binary
   with one from another source, the hook will execute that code. **Pin your
   binary in your image.**
@@ -531,9 +538,9 @@ What privacytk does *not* address:
 
 ## FAQ
 
-### How is this different from `rtk-ai/rtk`?
+### How is `pkt` different from `rtk-ai/rtk`?
 
-**`rtk` is a token-saver. `privacytk` is a token-saver that also does not
+**`rtk` is a token-saver. `pkt` is a token-saver that also does not
 report anything about your codebase to anyone, including itself.**
 
 Both compress command output identically. The fork removes the upstream
@@ -600,8 +607,8 @@ Verify the SHA-256 against the published artefact, then verify the
 cosign signature. The release artefact includes both:
 
 ```bash
-sha256sum -c privacytk.sha256
-cosign verify-blob --key cosign.pub --signature privacytk.sig privacytk
+sha256sum -c pkt.sha256
+cosign verify-blob --key cosign.pub --signature pkt.sig privacytk
 ```
 
 If your operator does not sign the binary yet, do not ship to production.
@@ -623,7 +630,7 @@ nothing in the fork makes outbound HTTP requests.
 
 ### Where does the binary write to disk?
 
-Run `privacytk where-state` to see the live table. In default mode:
+Run `pkt where-state` to see the live table. In default mode:
 
 - `~/.local/share/privacytk/history.db` (+ `-wal`, `-shm`)
 - `~/.local/share/privacytk/recall.db` (+ `-wal`, `-shm`)
@@ -643,12 +650,12 @@ The corporate fork assumes a **PR-based workflow with human review**. The
 human reviewer is the secret gate. Adding a second automated gate at
 commit time generates friction (false positives on test fixtures, on
 sample data, on documentation snippets) for no additional safety. The
-audit stays available as a manual command (`privacytk audit <path>`) and
+audit stays available as a manual command (`pkt audit <path>`) and
 can be wired into a CI step. To re-enable the gate, see `CORPORATE.md` §2d.
 
-### Does this work without Claude Code?
+### Does `pkt` work without Claude Code?
 
-Yes. `privacytk init -g` supports 11 agents: Claude Code, Cursor, Codex,
+Yes. `pkt init -g` supports 11 agents: Claude Code, Cursor, Codex,
 Gemini CLI, Trae, Pi, OMP, Hermes, Factory Droid, Mistral Vibe, and
 GitHub Copilot (CLI mode). Each gets its own per-agent install command
 (`privacytk init -g --agent <agent>`). The compression filters and the

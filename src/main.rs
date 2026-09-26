@@ -67,10 +67,10 @@ pub enum AgentTarget {
 
 #[derive(Parser)]
 #[command(
-    name = "privacytk",
+    name = "pkt",
     version,
     about = "Corporate rtk fork with default-deny network and secrets audit",
-    long_about = "privacytk is a corporate fork of rtk that filters and compresses command output before it reaches your LLM context. Telemetry is compiled out, every outbound URL must pass an allowlist, and a built-in secrets/PII scanner lets you audit a directory before piping it to an agent."
+    long_about = "pkt is a corporate fork of rtk that filters and compresses command output before it reaches your LLM context. Telemetry is compiled out, every outbound URL must pass an allowlist, and a built-in secrets/PII scanner lets you audit a directory before piping it to an agent."
 )]
 struct Cli {
     #[command(subcommand)]

@@ -10,7 +10,7 @@
 
 Note: in privacytk the `cc-economics` command does not invoke `npx ccusage` (that fallback hit the npm registry and was removed in the corporate fork).
 
-Owns: `privacytk gain` (savings dashboard) and `privacytk session` (adoption analysis).
+Owns: ``pkt` gain` (savings dashboard) and ``pkt` session` (adoption analysis).
 
 Does **not** own: recording token savings (that's `core/tracking` called by `cmds/`), or command filtering itself (that's `cmds/`).
 

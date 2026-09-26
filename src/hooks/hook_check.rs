@@ -98,9 +98,9 @@ fn warning_text(status: HookStatus, suppress_missing: bool) -> Option<&'static s
         HookStatus::Ok => None,
         HookStatus::Missing if suppress_missing => None,
         HookStatus::Missing => {
-            Some("[privacytk] /!\\ No hook installed — run `privacytk init -g` for automatic token savings")
+            Some("[pkt] /!\\ No hook installed — run `pkt init -g` for automatic token savings")
         }
-        HookStatus::Outdated => Some("[privacytk] /!\\ Hook outdated — run `privacytk init -g` to update"),
+        HookStatus::Outdated => Some("[pkt] /!\\ Hook outdated — run `pkt init -g` to update"),
     }
 }
 

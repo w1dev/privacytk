@@ -2,7 +2,7 @@
 
 All notable changes to **privacytk** are documented in this file.
 
-privacytk is a corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk)
+`pkt` is a corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk)
 pinned at [v0.49.0](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0).
 For the upstream changelog see the `rtk` releases page. This file
 only tracks what the fork itself changed on top of the upstream base.
@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The fallback hit the npm registry silently on every run; the corporate
   fork refuses to invoke `npx` for analytics.
 - **Added**: `core::network_guard`. Default-deny TOML allowlist at
-  `~/.config/privacytk/network.toml`. The guard refuses to load any
-  `default_deny = false` policy. `privacytk verify-network <host>` is
+  `~/.config/pkt/network.toml`. The guard refuses to load any
+  `default_deny = false` policy. ``pkt` verify-network <host>` is
   the operator's microscope for the allowlist.
 - **Added**: `core::audit`. Local-only secrets and PII scanner.
   Pattern table covers AWS keys (`AKIA…`), GitHub tokens (`ghp_/gho_/ghs_/ghu_`),
@@ -38,33 +38,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   When the hash matches a recent invocation, the LLM receives a one-line
   hit instead of the duplicated bytes. Cache lives under
   `/tmp/privacytk-dedup-<user>/`; only hashes are stored, never output.
-- **Added**: `core::ephemeral` (settings inventory). `privacytk where-state`
+- **Added**: `core::ephemeral` (settings inventory). ``pkt` where-state`
   lists every path the binary can touch on disk (SQLite DBs, TOML
   config, tee buffers, hook-audit log, telemetry markers) with size and
-  existence. `privacytk where-state --purge` removes the ephemeral temp dir.
-- **Added**: `core::network_audit`. `privacytk network-audit <cmd>` runs
+  existence. ``pkt` where-state --purge` removes the ephemeral temp dir.
+- **Added**: `core::network_audit`. ``pkt` network-audit <cmd>` runs
   the supplied command under `unshare --net` (Linux) or `sandbox-exec`
   (macOS) and reports the blocked TCP attempts. Pre-flight check for
   any new wrapper CLI the operator wants to adopt.
-- **Added**: `core::cfd`. `privacytk cfd <query>` parses the
+- **Added**: `core::cfd`. ``pkt` cfd <query>` parses the
   `docs/decisions/_index.md` (both table and bullet forms), searches by
   title/id/status, and returns individual ADRs by id (with `--summary`
-  for a one-liner). `privacytk cfd-context --top-adrs N` builds the
+  for a one-liner). ``pkt` cfd-context --top-adrs N` builds the
   session-start bundle (CLAUDE.md + index + In Progress ADRs) per the
   CFD methodology.
 
 ### Hook behaviour
 
 - **Renamed**: every Claude/Cursor/Codex/etc. hook command now points at
-  `privacytk hook <agent>` instead of `rtk hook <agent>`. `is_rtk_binary()`
+  ``pkt` hook <agent>` instead of `rtk hook <agent>`. `is_rtk_binary()`
   accepts both names so operators with both installs in `PATH` keep
   working.
-- **Removed**: `privacytk init -g` no longer installs a pre-commit audit
+- **Removed**: ``pkt` init -g` no longer installs a pre-commit audit
   gate. The corporate fork assumes a PR-based flow with human review
   and GHE push protection; the audit stays available as a manual
-  command (`privacytk audit <path>`) and as a CI step.
-- **Added**: `SessionStart` hook. `privacytk init -g` installs
-  `privacytk hook session-start` which emits the CFD manifest on stdout.
+  command (``pkt` audit <path>`) and as a CI step.
+- **Added**: `SessionStart` hook. ``pkt` init -g` installs
+  ``pkt` hook session-start` which emits the CFD manifest on stdout.
   Claude Code prepends it to the session's opening context automatically.
 
 ### Drift detection
