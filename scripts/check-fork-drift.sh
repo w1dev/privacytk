@@ -147,6 +147,7 @@ marker_needles=(
     'Local secrets/PII scanner'
     'PRIVACYTK_DEDUP'
     'Context-First Development'
+    'SESSION_START_HOOK_COMMAND'
 )
 marker_missing=0
 for i in "${!marker_files[@]}"; do

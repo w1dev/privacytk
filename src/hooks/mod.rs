@@ -19,7 +19,10 @@ pub mod verify_cmd;
 
 fn is_rtk_binary(binary: &str) -> bool {
     let binary_name = binary.rsplit(['/', '\\']).next().unwrap_or(binary);
-    matches!(binary_name, "rtk" | "rtk.exe")
+    // Privacytk is the corporate fork; it accepts both names so existing
+    // `rtk` installs (e.g. operators with upstream rtk in PATH) keep
+    // working alongside the fork.
+    matches!(binary_name, "rtk" | "rtk.exe" | "privacytk" | "privacytk.exe")
 }
 
 fn is_rtk_hook_command(command: &str, agent: &str) -> bool {

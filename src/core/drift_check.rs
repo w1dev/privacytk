@@ -327,3 +327,36 @@ fn drift_script_present_and_executable() {
     }
     let _ = meta;
 }
+#[test]
+fn corporate_hooks_installed_by_init() {
+    // The init flow must wire all three hooks: Bash rewrite,
+    // SessionStart CFD injection, pre-commit audit gate.
+    let main = read("src/main.rs");
+    assert!(
+        main.contains("HookCommands::SessionStart"),
+        "main.rs must dispatch HookCommands::SessionStart"
+    );
+    assert!(
+        main.contains("HookCommands::PreCommitGate"),
+        "main.rs must dispatch HookCommands::PreCommitGate"
+    );
+    let constants = read("src/hooks/constants.rs");
+    assert!(
+        constants.contains("SESSION_START_HOOK_COMMAND"),
+        "src/hooks/constants.rs must declare SESSION_START_HOOK_COMMAND"
+    );
+    assert!(
+        constants.contains("PRE_COMMIT_GATE_HOOK_COMMAND"),
+        "src/hooks/constants.rs must declare PRE_COMMIT_GATE_HOOK_COMMAND"
+    );
+    let init = read("src/hooks/init/mod.rs");
+    assert!(
+        init.contains("insert_corporate_hooks"),
+        "src/hooks/init/mod.rs must expose insert_corporate_hooks"
+    );
+    let claude_init = read("src/hooks/init/claude.rs");
+    assert!(
+        claude_init.contains("insert_corporate_hooks"),
+        "src/hooks/init/claude.rs install path must call insert_corporate_hooks"
+    );
+}

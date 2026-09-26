@@ -1238,6 +1238,80 @@ pub(super) fn insert_hook_entry(root: &mut serde_json::Value, hook_command: &str
     )
 }
 
+/// Insert the full corporate fork hook set: the upstream `PreToolUse`
+/// (Bash rewrite) + a `SessionStart` hook that injects the CFD manifest
+/// + a second `PreToolUse` (Bash) that gates `git commit` on `audit`.
+pub(super) fn insert_corporate_hooks(
+    root: &mut serde_json::Value,
+    claude_hook: &str,
+    session_start_hook: &str,
+    pre_commit_gate_hook: &str,
+) -> Result<()> {
+    if !root.is_object() {
+        *root = serde_json::json!({});
+    }
+
+    // 1. The upstream PreToolUse (Bash rewrite). Idempotent.
+    if !hook_command_already_present(root, PRE_TOOL_USE_KEY, claude_hook) {
+        append_hook_entry(
+            root,
+            PRE_TOOL_USE_KEY,
+            serde_json::json!({
+                "matcher": "Bash",
+                "hooks": [{"type": "command", "command": claude_hook}]
+            }),
+        )?;
+    }
+
+    // 2. SessionStart hook. Empty matcher = applies to all startup events.
+    if !hook_command_already_present(root, "SessionStart", session_start_hook) {
+        append_hook_entry(
+            root,
+            "SessionStart",
+            serde_json::json!({
+                "matcher": "",
+                "hooks": [{"type": "command", "command": session_start_hook}]
+            }),
+        )?;
+    }
+
+    // 3. Pre-commit audit gate.
+    if !hook_command_already_present(root, PRE_TOOL_USE_KEY, pre_commit_gate_hook) {
+        append_hook_entry(
+            root,
+            PRE_TOOL_USE_KEY,
+            serde_json::json!({
+                "matcher": "Bash",
+                "hooks": [{"type": "command", "command": pre_commit_gate_hook}]
+            }),
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Check if a hook command already exists in any entry of the given event.
+/// Handles both the grouped form (`{"matcher":..., "hooks":[{...}]}`) and
+/// the flat form (`{...hook-object...}` directly).
+fn hook_command_already_present(root: &serde_json::Value, event: &str, command: &str) -> bool {
+    root.get("hooks")
+        .and_then(|h| h.get(event))
+        .and_then(|e| e.as_array())
+        .is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                entry
+                    .get("hooks")
+                    .and_then(|h| h.as_array())
+                    .is_some_and(|hooks| {
+                        hooks.iter().any(|hook| {
+                            hook.get("command").and_then(|c| c.as_str()) == Some(command)
+                        })
+                    })
+                    || entry.get("command").and_then(|c| c.as_str()) == Some(command)
+            })
+        })
+}
+
 /// Generate .rtk/filters.toml template in the current directory if not present.
 pub(super) fn generate_project_filters_template(ctx: InitContext) -> Result<()> {
     let InitContext {

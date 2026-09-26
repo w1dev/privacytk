@@ -1116,6 +1116,17 @@ enum HookCommands {
     Droid,
     /// Process Mistral Vibe CLI pre_tool hook (reads JSON from stdin)
     Vibe,
+    /// Emit the CFD session-start manifest to stdout (for `SessionStart` hooks).
+    /// Reads the repo root from PRIVACYTK_CFD_REPO (default ".").
+    SessionStart,
+    /// Audit gate for `git commit`: if the Bash command is a `git commit`,
+    /// run `privacytk audit` on the repo and abort (exit 2) when secrets
+    /// are found. Otherwise exit 0 with empty stdout.
+    PreCommitGate {
+        /// Path to the repo root to audit (default ".").
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
     /// Check how a command would be rewritten by the hook engine (dry-run)
     Check {
         /// Target agent
@@ -2053,6 +2064,52 @@ fn is_native_test_expression(command: &[String]) -> bool {
         Some(arg) => arg.starts_with('-'),
         None => false,
     }
+}
+
+/// Pull the bash command out of a Claude Code PreToolUse payload.
+///
+/// The hook receives a JSON object on stdin:
+///   `{"session_id": "...", "tool_name": "Bash", "tool_input": {"command": "..."}}`
+/// Returns the inner `command` string, or empty on parse error / wrong shape.
+fn extract_bash_command(payload: &str) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return String::new();
+    };
+    v.get("tool_input")
+        .and_then(|ti| ti.get("command"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Heuristic: is the given bash command line a `git commit` invocation?
+/// Matches `git commit`, `git -C <path> commit`, and tolerates leading
+/// env-var assignments (`FOO=bar git commit`).
+/// Override: `PRIVACYTK_AUDIT_OVERRIDE=1` skips the gate entirely.
+fn looks_like_git_commit(command_line: &str) -> bool {
+    if std::env::var("PRIVACYTK_AUDIT_OVERRIDE").ok().as_deref() == Some("1") {
+        return false;
+    }
+    let trimmed = command_line.trim_start();
+    // Take the last statement (after any `;`).
+    let after_env = trimmed.split(';').next_back().unwrap_or(trimmed).trim_start();
+    let tokens: Vec<&str> = after_env.split_whitespace().collect();
+    let mut i = 0;
+    // Skip env=val pairs (e.g. `FOO=bar`).
+    while i < tokens.len() && tokens[i].contains('=') && !tokens[i].starts_with('-') {
+        i += 1;
+    }
+    if i >= tokens.len() {
+        return false;
+    }
+    let head = tokens[i];
+    // `git`, `/usr/bin/git`, or any path ending in `/git`.
+    let is_git = head == "git" || head.ends_with("/git");
+    if !is_git {
+        return false;
+    }
+    let next = tokens.get(i + 1).copied();
+    matches!(next, Some(s) if s == "commit" || s == "-c" || s == "-C")
 }
 
 fn run_cli() -> Result<i32> {
@@ -3303,6 +3360,53 @@ fn run_cli() -> Result<i32> {
             HookCommands::Vibe => {
                 hooks::hook_cmd::run_vibe()?;
                 0
+            }
+            HookCommands::SessionStart => {
+                let repo = std::env::var("PRIVACYTK_CFD_REPO")
+                    .ok()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("."));
+                match core::cfd::session_manifest(&repo, 5) {
+                    Ok(m) => print!("{}", m.render()),
+                    Err(_) => {
+                        // Quietly no-op: the SessionStart hook should not
+                        // block session start when the repo doesn't have
+                        // CFD scaffolding yet.
+                    }
+                }
+                0
+            }
+            HookCommands::PreCommitGate { repo } => {
+                let repo = repo.unwrap_or_else(|| PathBuf::from("."));
+                // Read the Bash tool input from stdin (Claude Code's
+                // PreToolUse payload). The `tool_input.command` field holds
+                // the raw bash command.
+                let raw = std::io::read_to_string(std::io::stdin()).unwrap_or_default();
+                let command_line = extract_bash_command(&raw);
+                if !looks_like_git_commit(&command_line) {
+                    return Ok(0);
+                }
+                let scanner = core::audit::Scanner::new()
+                    .context("audit scanner init")?;
+                let hits = scanner.scan_tree(&repo);
+                if hits.is_empty() {
+                    eprintln!("[privacytk] audit clean — proceeding with commit");
+                    return Ok(0);
+                }
+                eprintln!("[privacytk] audit: {} hit(s) in {}; commit blocked", hits.len(), repo.display());
+                for h in &hits {
+                    eprintln!(
+                        "  {}:{}:{}  {}  {}",
+                        h.file,
+                        h.line,
+                        h.column,
+                        h.category.label(),
+                        h.preview
+                    );
+                }
+                eprintln!("\nRun `privacytk audit {} --human` for the full list.", repo.display());
+                eprintln!("To override once: PRIVACYTK_AUDIT_OVERRIDE=1 git commit ...");
+                2
             }
             HookCommands::Check { agent, command } => {
                 // Answers the same question the hooks answer, through the same

@@ -192,6 +192,54 @@ the returned ADR by id (or summary) — never read `docs/decisions/`
 whole. For session start, run `privacytk cfd-context --top-adrs 5`.
 ```
 
+## 2d. Automatic hooks (SessionStart + pre-commit audit)
+
+A single `privacytk init -g --agent claude` installs three hooks
+into `~/.claude/settings.json` (and one parallel set per agent you
+also init):
+
+| Hook event | Matcher | Command | What it does |
+|---|---|---|---|
+| `PreToolUse` | `Bash` | `privacytk hook claude` | Rewrites `git status` → `privacytk git status`, etc. (upstream behavior; **free for the developer**, no manual invocation needed.) |
+| `SessionStart` | `""` | `privacytk hook session-start` | On every Claude Code session start, emits the CFD manifest (CLAUDE.md + decisions index + `CURRENT_STATUS.md` In-Progress/Next-Priorities + 5 most-recent ADRs) to stdout. Claude Code prepends it to the session context. |
+| `PreToolUse` | `Bash` | `privacytk hook pre-commit-gate` | On any Bash call that contains `git commit`, runs `privacytk audit <repo>` and aborts (exit 2) when hits are found. Override once with `PRIVACYTK_AUDIT_OVERRIDE=1 git commit ...`. |
+
+The first hook is what the upstream `rtk` already did; the fork
+keeps it working but renames the binary to `privacytk`. The latter
+two are new.
+
+After `init`, the developer does not invoke `privacytk` manually
+for the common cases:
+
+- **Bash compression** happens automatically on every command the
+  LLM tries to run. **CFD context** is loaded on session start.
+  **Secret audit** runs before each `git commit`.
+
+What stays manual:
+
+- `privacytk audit` (ad-hoc scan before pasting output into a prompt).
+- `privacytk verify-network` (sanity check after editing
+  `~/.config/privacytk/network.toml`).
+- `privacytk where-state` (confirm zero disk writes after a session).
+- `privacytk network-audit <tool>` (pre-flight check on a new wrapper CLI).
+- `privacytk cfd <query>` (one-off ADR lookup outside session-start).
+- `privacytk dedup` / `--dedup` (opt-in dedup of identical re-runs).
+
+The hooks are idempotent: re-running `init` is safe; existing
+entries are not duplicated. The fork-specific session-start and
+audit-gate entries use a single check (`hook_command_already_present`)
+that inspects both the grouped and flat hook-entry shapes Claude Code
+accepts.
+
+Disable the pre-commit gate per command without uninstalling:
+
+```bash
+PRIVACYTK_AUDIT_OVERRIDE=1 git commit -m "audit noise acceptable here"
+```
+
+Disable for the whole session by exporting the same variable in the
+shell that launches Claude Code.
+
 ## 3. Verifying a build before shipping it
 
 Run these four checks on every image. Each is a one-liner:

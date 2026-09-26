@@ -9,18 +9,26 @@ pub const PRE_TOOL_USE_KEY: &str = "PreToolUse";
 pub const BEFORE_TOOL_KEY: &str = "BeforeTool";
 
 /// Native Rust hook command for Claude Code (replaces rtk-rewrite.sh).
-pub const CLAUDE_HOOK_COMMAND: &str = "rtk hook claude";
+pub const CLAUDE_HOOK_COMMAND: &str = "privacytk hook claude";
 /// Native Rust hook command for Trae.
-pub const TRAE_HOOK_COMMAND: &str = "rtk hook trae";
+pub const TRAE_HOOK_COMMAND: &str = "privacytk hook trae";
 
 /// Native Rust hook command for Codex CLI.
-pub const CODEX_HOOK_COMMAND: &str = "rtk hook codex";
+pub const CODEX_HOOK_COMMAND: &str = "privacytk hook codex";
 /// Native Rust hook command for Cursor (replaces rtk-rewrite.sh).
-pub const CURSOR_HOOK_COMMAND: &str = "rtk hook cursor";
+pub const CURSOR_HOOK_COMMAND: &str = "privacytk hook cursor";
 /// Native Rust hook command for Factory Droid.
-pub const DROID_HOOK_COMMAND: &str = "rtk hook droid";
+pub const DROID_HOOK_COMMAND: &str = "privacytk hook droid";
 /// Native Rust hook command for Mistral Vibe.
-pub const VIBE_HOOK_COMMAND: &str = "rtk hook vibe";
+pub const VIBE_HOOK_COMMAND: &str = "privacytk hook vibe";
+
+/// SessionStart hook: emits the CFD session-start manifest on stdout.
+/// Claude Code concatenates stdout from SessionStart hooks into the
+/// session's opening context.
+pub const SESSION_START_HOOK_COMMAND: &str = "privacytk hook session-start";
+/// Pre-commit audit gate: aborts the Bash tool call when the command is
+/// `git commit` and `privacytk audit` reports hits.
+pub const PRE_COMMIT_GATE_HOOK_COMMAND: &str = "privacytk hook pre-commit-gate";
 
 pub const CONFIG_DIR: &str = ".config";
 pub const OPENCODE_SUBDIR: &str = "opencode";

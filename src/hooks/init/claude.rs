@@ -4,8 +4,8 @@
 use super::opencode::{ensure_opencode_plugin_installed, prepare_opencode_plugin_path};
 use super::*;
 use crate::hooks::constants::{
-    CLAUDE_DIR, CLAUDE_HOOK_COMMAND, CURSOR_DIR, HOOKS_SUBDIR, PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE,
-    SETTINGS_JSON,
+    CLAUDE_DIR, CLAUDE_HOOK_COMMAND, CURSOR_DIR, HOOKS_SUBDIR, PRE_COMMIT_GATE_HOOK_COMMAND,
+    PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE, SESSION_START_HOOK_COMMAND, SETTINGS_JSON,
 };
 
 /// Legacy mode (--claude-md): inject the full RTK_INSTRUCTIONS block into CLAUDE.md.
@@ -233,7 +233,12 @@ fn patch_settings_json_command(
         }
     }
 
-    insert_hook_entry(&mut root, hook_command)?;
+    insert_corporate_hooks(
+        &mut root,
+        CLAUDE_HOOK_COMMAND,
+        SESSION_START_HOOK_COMMAND,
+        PRE_COMMIT_GATE_HOOK_COMMAND,
+    )?;
 
     if !dry_run {
         ensure_parent_dir(&settings_path)?;
