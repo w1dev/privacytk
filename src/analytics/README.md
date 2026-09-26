@@ -1,12 +1,16 @@
 # Analytics
 
-> See also [docs/contributing/TECHNICAL.md](../../docs/contributing/TECHNICAL.md) for the full architecture overview
+> privacytk corporate fork of [rtk-ai/rtk](https://github.com/rtk-ai/rtk) v0.49.0.
+> For the fork's architecture see [CLAUDE.md](../../CLAUDE.md) and
+> [docs/CORPORATE.md](../../docs/CORPORATE.md).
 
 ## Scope
 
 **Read-only dashboards** over the tracking database. Queries the recorded bash output reduction, correlates with external spending data, and surfaces adoption metrics. Never modifies the tracking DB.
 
-Owns: `rtk gain` (savings dashboard), `rtk cc-economics` (cost reduction), `rtk session` (adoption analysis), and Claude Code usage data parsing.
+Note: in privacytk the `cc-economics` command does not invoke `npx ccusage` (that fallback hit the npm registry and was removed in the corporate fork).
+
+Owns: `privacytk gain` (savings dashboard) and `privacytk session` (adoption analysis).
 
 Does **not** own: recording token savings (that's `core/tracking` called by `cmds/`), or command filtering itself (that's `cmds/`).
 

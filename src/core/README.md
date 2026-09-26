@@ -1,12 +1,20 @@
 # Core Infrastructure
 
-> See also [docs/contributing/TECHNICAL.md](../../docs/contributing/TECHNICAL.md) for the full architecture overview
+> privacytk corporate fork of [rtk-ai/rtk](https://github.com/rtk-ai/rtk) v0.49.0.
+> For the fork's architecture see [CLAUDE.md](../../CLAUDE.md) and
+> [docs/CORPORATE.md](../../docs/CORPORATE.md).
 
 ## Scope
 
 Domain-agnostic building blocks with **no knowledge of any specific command, hook, or agent**. If a module references "git", "cargo", "claude", or any external tool by name, it does not belong here. Core is a leaf in the dependency graph — it is consumed by all other components but imports from none of them.
 
-Owns: configuration loading, token tracking persistence, TOML filter engine, tee output recovery, display formatting, telemetry, and shared utilities.
+Owns: configuration loading, token tracking persistence, TOML filter engine, tee output recovery, display formatting, and shared utilities.
+
+Inherited from upstream: `config`, `tracking`, `toml_filter`, `tee`, `truncate`, `runner`, `stream`, `display_helpers`, `utils`.
+
+Fork-only modules (all in `src/core/`): `network_guard`, `audit`, `cfd`, `ephemeral`, `dedup`, `network_audit`, `drift_check`. See [docs/CORPORATE.md](../../docs/CORPORATE.md) for the corporate guarantees each one provides.
+
+The telemetry module exists (`telemetry`, `telemetry_cmd`) but is dead code — the drift check enforces that no HTTP client (`ureq`, `reqwest`, etc.) is in `Cargo.toml`, and `telemetry::endpoint_url()` always returns `None`. The CLI subcommand `privacytk telemetry status` reports the build does not transmit.
 
 Does **not** own: command-specific filtering logic (that's `cmds/`), hook lifecycle management (that's `src/hooks/`), or analytics dashboards (that's `analytics/`).
 

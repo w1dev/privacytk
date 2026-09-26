@@ -1,13 +1,15 @@
 # Built-in Filters
 
-> See also [docs/contributing/TECHNICAL.md](../../docs/contributing/TECHNICAL.md) for the full architecture overview
+> privacytk corporate fork of [rtk-ai/rtk](https://github.com/rtk-ai/rtk) v0.49.0.
+> For the fork's architecture see [CLAUDE.md](../../CLAUDE.md) and
+> [docs/CORPORATE.md](../../docs/CORPORATE.md).
 
 Each `.toml` file in this directory defines one filter and its inline tests.
 Files are concatenated alphabetically by `build.rs` into a single TOML blob embedded in the binary.
 
 ## When to Use a TOML Filter
 
-TOML filters strip noise lines — they don't reformat output. The filtered result must still look like real command output (see [Design Philosophy](../../CONTRIBUTING.md#design-philosophy)). For the full TOML-vs-Rust decision criteria, see [CONTRIBUTING.md](../../CONTRIBUTING.md#toml-vs-rust-which-one).
+TOML filters strip noise lines — they don't reformat output. The filtered result must still look like real command output (see upstream's `CONTRIBUTING.md`). For the full TOML-vs-Rust decision criteria, see [upstream's CONTRIBUTING.md](https://github.com/rtk-ai/rtk/blob/master/CONTRIBUTING.md#toml-vs-rust-which-one).
 
 TOML works well for commands with **predictable, line-by-line text output** where regex filtering achieves 60%+ savings:
 - Install/update logs (brew, composer, poetry) — strip `Using ...` / `Already installed` lines

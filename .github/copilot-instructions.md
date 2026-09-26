@@ -1,66 +1,68 @@
-# Copilot Instructions for rtk
+# Copilot instructions for privacytk
 
-**rtk (Rust Token Killer)** is a CLI proxy that filters and compresses command outputs before they reach an LLM context, cutting 60-90% of bash output. It wraps common tools (`git`, `cargo`, `grep`, `pnpm`, `go`, etc.) and outputs condensed summaries instead of raw output. Percentages measure bash output, not billed tokens; RTK ships no tokenizer (`src/core/tracking.rs` estimates `bytes / 4`).
+privacytk is a corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk)
+v0.49.0. It is a CLI proxy that filters and compresses command outputs
+before they reach an LLM context. This file is the fork's; the upstream
+instructs Copilot to type `rtk` everywhere — that instruction does not
+apply here. Use `privacytk` instead, or nothing at all (the hook
+re-writes commands automatically).
 
-## Using rtk in this session
+## Using privacytk in this session
 
-**Always prefix commands with `rtk` when running shell commands** — this reduces token consumption for every operation you perform.
-
-```bash
-# Instead of:              Use:
-git status                 rtk git status
-git log -10                rtk git log -10
-cargo test                 rtk cargo test
-cargo clippy --all-targets rtk cargo clippy --all-targets
-grep -r "pattern" src/     rtk grep -r "pattern" src/
-```
-
-**rtk meta-commands** (always use these directly, no prefix needed):
-```bash
-rtk gain              # Show token savings analytics
-rtk gain --history    # Full command history with per-command savings
-rtk discover          # Scan session history for missed rtk opportunities
-rtk proxy <cmd>       # Run a command raw (no filtering) but still track it
-```
-
-**Verify rtk is installed before starting:**
-```bash
-rtk --version   # Should print: rtk X.Y.Z
-rtk gain        # Should show a dashboard (not "command not found")
-```
-
-> Name collision: `rtk gain` failing means you have `reachingforthejack/rtk` (Rust Type Kit) installed instead. Run `which rtk` to check.
-
-## Build, Test & Lint
+When you would normally run a CLI tool, run it through `privacytk`:
 
 ```bash
-cargo build                    # Development build
-cargo test                     # All tests
-cargo test test_name           # Single test
-cargo test module::tests::     # Module tests
-cargo test -- --nocapture      # With stdout
+# Equivalent to `git status`, with token compression applied:
+privacytk git status
 
-# Pre-commit gate (must all pass before any PR)
-cargo fmt --all --check && cargo clippy --all-targets && cargo test
-
-bash scripts/test-all.sh       # Smoke tests (requires installed binary)
+# Or, if the SessionStart hook is installed, just run `git status`
+# and the hook rewrites it for you.
+git status
 ```
 
-PRs target the **`develop`** branch, not `main`. All commits require a DCO sign-off (`git commit -s`).
+The binary lives at `target/release/privacytk` after `cargo build
+--release`, or in `~/.local/bin/privacytk` after `./install.sh`.
 
-## Architecture
+## Build, test, smoke
 
-rtk routes CLI commands via a Clap `Commands` enum in `main.rs` to specialized filter modules in `src/cmds/*/`, each executing the underlying command and compressing output. Token savings are tracked in SQLite via `src/core/tracking.rs`.
+```bash
+cargo build --release
+cargo test --bin privacytk --release
+cargo test --bin privacytk --release core::drift_check
+bash scripts/check-fork-drift.sh HEAD~1
+```
 
-For full details see [ARCHITECTURE.md](../docs/contributing/ARCHITECTURE.md) and [docs/contributing/TECHNICAL.md](../docs/contributing/TECHNICAL.md). Module responsibilities are documented in each folder's `README.md` and each file's `//!` doc header.
+The four-smoke battery in the README is the release gate.
 
-## Key Conventions
+## Corporate invariants
 
-- **Error handling**: `anyhow::Result` with `.context("description")?` — no bare `?`, no `unwrap()` in production. Filters must fall back to raw command on error.
-- **Regex**: Use `LazyLock<Regex>` for fixed patterns reused across calls; keep runtime-dependent patterns local.
-- **Testing**: Unit tests inside modules (`#[cfg(test)] mod tests`). Fixtures in `tests/fixtures/`. Token savings assertions with `count_tokens()`.
-- **Exit codes**: Preserve the underlying command's exit code via `std::process::exit(code)`.
-- **Performance**: Startup <10ms (no async runtime), binary <5MB stripped.
-- **Branch naming**: `fix(scope):`, `feat(scope):`, `chore(scope):` where scope is the affected component.
+privacytk's corporate layer adds three guarantees over the upstream
+CLI. **Do not break them.** Drift tests enforce each one.
 
-For the full contribution workflow, design philosophy, and new-filter checklist, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+1. **No telemetry.** `ureq` is not in `Cargo.toml`. The drift test
+   asserts it stays out.
+2. **Default-deny network.** Any new outbound URL must go through
+   `core::network_guard::allow()`. Adding `reqwest`/`surf`/`isahc` is a
+   drift violation.
+3. **Local secrets/PII scanner.** `privacytk audit` is the scanner; new
+   patterns go into `PATTERNS` in `src/core/audit.rs` with a unit test.
+
+## Working directory
+
+Before starting work, verify you are in the **privacytk** project root.
+Check `git log --oneline | head -3` — fork commits start with `fork:`,
+upstream merges do not. If you see `rtk-ai/rtk` URLs without the
+`fork:` prefix, you are on the wrong checkout.
+
+## What is out of scope
+
+- Adding new HTTP clients.
+- Re-introducing upstream telemetry or the `npx ccusage` fallback.
+- Refactoring the filter pass (`src/cmds/*/`). The filter pass is the
+  upstream's; it is intentionally untouched so rebase diffs stay small.
+- Refactoring the upstream hook scripts in `hooks/`. Their filenames
+  must stay (`rtk-rewrite.sh`, etc.) for the integration with Claude
+  Code to keep working.
+
+See [CLAUDE.md](../../blob/master/CLAUDE.md) for the full working
+agreement.

@@ -1,8 +1,14 @@
 # Command Filter Modules
 
+> privacytk corporate fork of [rtk-ai/rtk](https://github.com/rtk-ai/rtk) v0.49.0.
+> For the fork's architecture see [CLAUDE.md](../../CLAUDE.md) and
+> [docs/CORPORATE.md](../../docs/CORPORATE.md).
+
 ## Scope
 
 **Command execution and output filtering.** Every module here calls an external CLI tool (`Command::new("some_tool")`), transforms its stdout/stderr to reduce the bytes the agent reads, and records the reduction via `core/tracking`.
+
+This directory is **inherited from upstream** — the filter pass is identical to the upstream `rtk` and is the core value of the binary. **Do not refactor filter logic in this fork**; the corporate layer is added above this directory (`src/core/network_guard.rs`, `audit.rs`, `cfd.rs`, `ephemeral.rs`, `dedup.rs`, `network_audit.rs`, `drift_check.rs`).
 
 Owns: all command-specific filter logic, organized by ecosystem (git, rust, js, python, go, dotnet, cloud, system). Cross-ecosystem routing (e.g., `lint_cmd` detecting Python and delegating to `ruff_cmd`) is an intra-component concern.
 

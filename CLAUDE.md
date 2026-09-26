@@ -1,171 +1,182 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working
+in this repository. **This is `privacytk`, a corporate fork of
+[`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) v0.49.0.** The fork
+keeps the upstream's compression filters and adds the corporate
+guarantees documented in the README and `docs/CORPORATE.md`. This
+CLAUDE.md is the fork's — it does not redirect to the upstream.
 
-## Project Overview
+## What this repo is
 
-**rtk (Rust Token Killer)** is a high-performance CLI proxy that minimizes LLM token consumption by filtering and compressing command outputs. It reduces bash output by 60-90% on common development operations through smart filtering, grouping, truncation, and deduplication. All percentages in this repo measure bash output, not your bill. RTK ships no tokenizer (`src/core/tracking.rs` estimates tokens as `bytes / 4`), so the ratios are reliable but the absolute token counts are approximate.
+`privacytk` is a CLI proxy that compresses command output before the
+LLM (or the developer) reads it. It is **drop-in compatible with the
+upstream `rtk` CLI surface** (same subcommands, same flags, same hooks),
+but with three corporate guarantees layered on top:
 
-This is a fork with critical fixes for git argument parsing and modern JavaScript stack support (pnpm, vitest, Next.js, TypeScript, Playwright, Prisma).
+1. **No telemetry.** The upstream `telemetry::maybe_ping` is removed.
+   `privacytk telemetry status` reports the build does not transmit.
+2. **Default-deny network.** Every outbound URL must pass an explicit
+   allowlist (`~/.config/privacytk/network.toml`).
+3. **Local secrets/PII scanner.** `privacytk audit <path>` walks a tree
+   and reports hits with redacted previews.
 
-### Name Collision Warning
+The README has the full threat model. The "How to test" section has
+the four-smoke battery you must run before any release.
 
-**Two different "rtk" projects exist:**
-- This project: Rust Token Killer (rtk-ai/rtk)
-- reachingforthejack/rtk: Rust Type Kit (DIFFERENT - generates Rust types)
+## Provenance
 
-**Verify correct installation:**
+Forked from `rtk-ai/rtk` v0.49.0. The fork tracks upstream for filter
+additions (new commands, new ecosystems) but rebases selectively — the
+fork's `Cargo.toml` rewrites the package name to `privacytk`, removes
+`ureq`, removes the `npx ccusage` fallback, and replaces the upstream
+`init` with a corporate-friendly variant.
+
+The drift check (`scripts/check-fork-drift.sh` + `cargo test
+core::drift_check`) is the source of truth for "did a merge reintroduce
+something the fork removed?" — run it on every PR.
+
+## What you should NEVER do in this fork
+
+These are the drift invariants the test suite enforces. If you are
+about to do any of these, **stop and confirm with the operator**:
+
+- Add `ureq` back to `Cargo.toml`. The drift test fails on this.
+- Re-introduce `npx --yes ccusage`. Drift test fails.
+- Add a `ureq::post` or `send_string` call in `src/core/telemetry.rs`
+  or `src/core/telemetry_cmd.rs`. Drift test fails.
+- Revert `RTK_DATA_DIR` from `"privacytk"` back to `"rtk"`. Drift test
+  fails.
+- Re-add `homepage` or `repository` URLs to `Cargo.toml` pointing at
+  `rtk-ai/rtk`. Drift test fails.
+- Re-add the pre-commit audit gate in `privacytk init -g`. The drift
+  test asserts the constant `PRE_COMMIT_GATE_HOOK_COMMAND` is absent;
+  if you re-enable, also flip that assertion.
+
+If a rebase from upstream demands any of the above, document the
+exception in `CHANGELOG.md` and add a corresponding drift test
+exemption.
+
+## Development commands
+
+Prefer the fork's own compression when iterating:
+
 ```bash
-rtk --version  # Should show "rtk 0.28.2" (or newer)
-rtk gain       # Should show token savings stats (NOT "command not found")
+# Build (debug + release)
+cargo build
+cargo build --release
+
+# Test
+cargo test --bin privacytk --release
+cargo test --bin privacytk --release core::drift_check   # corporate invariants
+cargo test --bin privacytk --release core::audit         # scanner
+cargo test --bin privacytk --release core::cfd           # CFD integration
+cargo test --bin privacytk --release core::dedup         # dedup cache
+cargo test --bin privacytk --release core::ephemeral      # ephemeral mode
+cargo test --bin privacytk --release core::network_guard # allowlist
+
+# Smoke battery (manual, must pass before release)
+./target/release/privacytk telemetry status | grep 'this build'
+./target/release/privacytk verify-network api.example.com | grep 'deny'
+./target/release/privacytk audit /tmp/_smoke --human
+# zero outbound sockets during verify-network
+
+# Drift
+bash scripts/check-fork-drift.sh HEAD~1
 ```
 
-If `rtk gain` fails, you have the wrong package installed.
-
-## Development Commands
-
-> **Note**: If rtk is installed, prefer `rtk <cmd>` over raw commands for token-optimized output.
-> All commands work with passthrough support even for subcommands rtk doesn't specifically handle.
-
-### Build & Run
-```bash
-cargo build                   # raw
-rtk cargo build               # preferred (token-optimized)
-cargo build --release         # release build (optimized)
-cargo run -- <command>        # run directly
-cargo install --path .        # install locally
-```
-
-### Testing
-```bash
-cargo test                    # all tests
-rtk cargo test                # preferred (token-optimized)
-cargo test <test_name>        # specific test
-cargo test <module_name>::    # module tests
-cargo test -- --nocapture     # with stdout
-bash scripts/test-all.sh      # smoke tests (installed binary required)
-```
-
-### Linting & Quality
-```bash
-cargo check                   # check without building
-cargo fmt                     # format code
-cargo clippy --all-targets    # all clippy lints
-rtk cargo clippy --all-targets # preferred
-```
-
-### Pre-commit Gate
-```bash
-cargo fmt --all && cargo clippy --all-targets && cargo test --all
-```
-
-### Package Building
-```bash
-cargo deb                     # DEB package (needs cargo-deb)
-cargo generate-rpm            # RPM package (needs cargo-generate-rpm, after release build)
-```
+The upstream scripts (`scripts/test-all.sh`, `scripts/benchmark.sh`,
+`scripts/rtk-economics.sh`, etc.) are inherited from `rtk-ai/rtk` and
+remain unmodified. They still work because the CLI surface is
+identical.
 
 ## Architecture
 
-rtk uses a **command proxy architecture**: `main.rs` routes CLI commands via a Clap `Commands` enum to specialized filter modules in `src/cmds/*/`, each of which executes the underlying command and compresses its output. Token savings are tracked in SQLite via `src/core/tracking.rs`.
+The architecture mirrors the upstream but with corporate layers added:
 
-For the full architecture, component details, and module development patterns, see:
-- [ARCHITECTURE.md](docs/contributing/ARCHITECTURE.md) — System design, module organization, filtering strategies, error handling
-- [docs/contributing/TECHNICAL.md](docs/contributing/TECHNICAL.md) — End-to-end flow, folder map, hook system, filter pipeline
+- `src/cmds/*/` — filter pass, one module per ecosystem (git, cargo,
+  go, npm, docker, kubectl, …). Inherited from upstream. Compression
+  logic stays here.
+- `src/hooks/` — Claude Code hook scripts + the init flow that wires
+  them into `~/.claude/settings.json`. **The pre-commit audit gate was
+  removed**; only `PreToolUse` (Bash rewrite) and `SessionStart` (CFD
+  injection) are installed by `init -g`.
+- `src/core/network_guard.rs` — fork-only. Default-deny TOML allowlist
+  for any URL the binary would otherwise fetch.
+- `src/core/audit.rs` — fork-only. Local secrets/PII scanner with
+  redacted previews.
+- `src/core/cfd.rs` — fork-only. CFD-aware ADR lookup + session-start
+  bundle builder.
+- `src/core/dedup.rs` — fork-only. LRU cache for identical command
+  outputs.
+- `src/core/ephemeral.rs` — fork-only. Routes tracking DB and recall
+  DB to `:memory:` SQLite when `PRIVACYTK_EPHEMERAL=1` is set.
+- `src/core/network_audit.rs` — fork-only. `unshare -n` / `sandbox-exec`
+  wrapper for pre-flight-checking new CLIs.
+- `src/core/drift_check.rs` — fork-only. 22 source-level invariants
+  that mirror the bash drift script.
 
-Module responsibilities are documented in each folder's `README.md` and each file's `//!` doc header. Browse `src/cmds/*/` to discover available filters.
+For the upstream's deeper architecture write-up, see
+`docs/contributing/ARCHITECTURE.md` and `docs/contributing/TECHNICAL.md`
+(those are upstream docs; the fork does not maintain them).
 
-Supported ecosystems: git/gh/gt, cargo, go/golangci-lint, npm/pnpm/npx, ruff/pytest/pip/mypy, rspec/rubocop/rake, dotnet, playwright/vitest/jest, docker/kubectl/aws, gradlew/mvn, php/artisan/phpunit/phpstan/pest.
+## Coding rules for this fork
 
-### Proxy Mode
+Rust patterns, error handling, and anti-patterns are defined in
+`.claude/rules/rust-patterns.md` (auto-loaded into context). Key
+points that differ from the upstream:
 
-**Purpose**: Execute commands without filtering but track usage for metrics.
+- **`anyhow::Result` everywhere, always `.context("description")?`**
+- **No `unwrap()` in production code.** Drift test enforces zero
+  `unsafe` blocks (the upstream `lints.rust.unsafe_code = "deny"`
+  still applies).
+- **`LazyLock` statics** for all regex.
+- **No new HTTP client.** If a feature requires making a network call,
+  it must go through `core::network_guard`. Do not add `reqwest`,
+  `surf`, `isahc`, or any other HTTP client to `Cargo.toml`.
+- **No new `npx` / `pip` / `npm` invocations** in analytics paths. They
+  are covert egress channels.
+- **New secrets patterns** go into the `PATTERNS` const in
+  `src/core/audit.rs`. Add a unit test next to the new pattern.
+- **New corporate modules** go under `src/core/` (audit, cfd, dedup,
+  ephemeral, network_guard, network_audit, drift_check are the
+  precedent).
 
-**Usage**: `rtk proxy <command> [args...]`
-
-**Benefits**:
-- **Bypass RTK filtering**: Workaround bugs or get full unfiltered output
-- **Track usage metrics**: Measure which commands Claude uses most (visible in `rtk gain --history`)
-- **Guaranteed compatibility**: Always works even if RTK doesn't implement the command
-
-**Examples**:
-```bash
-rtk proxy git log --oneline -20    # Full git log output (no truncation)
-rtk proxy npm install express      # Raw npm output (no filtering)
-rtk proxy curl https://api.example.com/data  # Any command works
-```
-
-All proxy commands appear in `rtk gain --history` with 0% bash output reduction (input = output).
-
-## Coding Rules
-
-Rust patterns, error handling, and anti-patterns are defined in `.claude/rules/rust-patterns.md` (auto-loaded into context). Key points:
-
-- **anyhow::Result** everywhere, always `.context("description")?`
-- **No unwrap()** in production code
-- **`LazyLock` statics** for all regex (never compile on every function call)
-- **Fallback pattern**: if filter fails, execute raw command unchanged
-- **No async**: single-threaded by design (startup <10ms)
-- **Exit code propagation**: `std::process::exit(code)` on child failure
-
-Testing strategy and performance targets are defined in `.claude/rules/cli-testing.md` (auto-loaded). Key targets: <10ms startup, <5MB memory, 60-90% reduction in bash output bytes.
-
-For contribution workflow and design philosophy, see [CONTRIBUTING.md](CONTRIBUTING.md). For the step-by-step filter implementation checklist, see [src/cmds/README.md](src/cmds/README.md#adding-a-new-command-filter).
-
-## Build Verification (Mandatory)
-
-**CRITICAL**: After ANY Rust file edits, ALWAYS run the full quality check pipeline before committing:
-
-```bash
-cargo fmt --all && cargo clippy --all-targets && cargo test --all
-```
-
-**Rules**:
-- Never commit code that hasn't passed all 3 checks
-- Fix ALL clippy warnings before moving on (zero tolerance)
-- If build fails, fix it immediately before continuing to next task
-
-**Performance verification** (for filter changes):
-```bash
-hyperfine 'rtk git log -10' --warmup 3          # before
-cargo build --release
-hyperfine 'target/release/rtk git log -10' --warmup 3  # after (should be <10ms)
-```
-
-## Working Directory Confirmation
+## Working directory confirmation
 
 **ALWAYS confirm working directory before starting any work**:
 
 ```bash
-pwd  # Verify you're in the rtk project root
-git branch  # Verify correct branch (main, feature/*, etc.)
+pwd  # Verify you're in the privacytk project root
+git branch  # Verify correct branch
+git log --oneline | head -5  # Spot-check that commits are local
 ```
 
-**Never assume** which project to work in. Always verify before file operations.
+The fork's git log should show commits like `fork: install SessionStart...`,
+`fork: privacytk cfd + cfd-context...`, `fork: drop pre-commit-gate...`.
+If you see commits referencing `rtk-ai/rtk` URLs without a "fork:" prefix,
+you are on the wrong checkout.
 
-## Avoiding Rabbit Holes
+## Avoiding rabbit holes
 
-**Stay focused on the task**. Do not make excessive operations to verify external APIs, documentation, or edge cases unless explicitly asked.
+- **Do not research upstream `rtk-ai/rtk` issues / PRs.** The fork
+  rebases selectively. Open PRs upstream may never land here.
+- **Do not "fix" the upstream scripts in `scripts/`.** They work
+  because the CLI surface is identical. If they break, the cause is
+  in the binary, not in the script.
+- **Do not refactor `src/cmds/*/`.** Those are the upstream filter
+  pass. The fork adds corporate layers above; the filter logic is
+  intentionally untouched so rebase diffs stay small.
+- **Do not "fix" the upstream's CLAUDE.md, CONTRIBUTING.md, or
+  AWARENESS_CONFIG.md unless the fork's changes require it.** The
+  fork's CLAUDE.md is this file; the upstream's is at `rtk-ai/rtk`.
 
-**Rule**: If verification requires more than 3-4 exploratory commands, STOP and ask the user whether to continue or trust available info.
+## Plan execution protocol
 
-**Examples of rabbit holes to avoid**:
-- Excessive regex pattern testing (trust snapshot tests, don't manually verify 20 edge cases)
-- Deep diving into external command documentation (use fixtures, don't research git/cargo internals)
-- Over-testing cross-platform behavior (test macOS + Linux, trust CI for Windows)
-- Verifying API signatures across multiple crate versions (use docs.rs if needed, don't clone repos)
+When the operator provides a numbered plan, follow it sequentially.
+Commit after each logical step. Run the drift check + the four-smoke
+battery before pushing or merging. The drift check is the merge
+gate; the smoke battery is the release gate.
 
-**When to stop and ask**:
-- "Should I research X external API behavior?" → ASK if it requires >3 commands
-- "Should I test Y edge case?" → ASK if not mentioned in requirements
-- "Should I verify Z across N platforms?" → ASK if N > 2
-
-## Plan Execution Protocol
-
-When user provides a numbered plan (QW1-QW4, Phase 1-5, sprint tasks, etc.):
-
-1. **Execute sequentially**: Follow plan order unless explicitly told otherwise
-2. **Commit after each logical step**: One commit per completed phase/task
-3. **Never skip or reorder**: If a step is blocked, report it and ask before proceeding
-4. **Track progress**: Use task list (TaskCreate/TaskUpdate) for plans with 3+ steps
-5. **Validate assumptions**: Before starting, verify all referenced file paths exist and working directory is correct
+If a step is blocked, report it and ask before proceeding — do not
+silently skip or reorder.

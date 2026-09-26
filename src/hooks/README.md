@@ -1,12 +1,16 @@
 # Hook System
 
-> See also [docs/contributing/TECHNICAL.md](../../docs/contributing/TECHNICAL.md) for the full architecture overview | [hooks/](../../hooks/README.md) for deployed hook artifacts
+> privacytk corporate fork of [rtk-ai/rtk](https://github.com/rtk-ai/rtk) v0.49.0.
+> For the fork's architecture see [CLAUDE.md](../../CLAUDE.md) and
+> [docs/CORPORATE.md](../../docs/CORPORATE.md).
 
 ## Scope
 
 The **lifecycle management** layer for LLM agent hooks: install, uninstall, verify integrity, audit usage, and manage trust. This component creates and maintains the hook artifacts that live in `hooks/` (root), but does **not** execute rewrite logic itself — that lives in `discover/registry`.
 
-Owns: `rtk init` installation flows (6 agents via `AgentTarget` enum, now including Mistral Vibe + 3 special modes: Gemini, Codex, OpenCode), SHA-256 integrity verification, hook version checking, audit log analysis, `rtk rewrite` CLI entry point, and TOML filter trust management.
+Inherited from upstream: 11 agents (Claude Code, Cursor, Codex, Gemini CLI, Trae, Pi, OMP, Hermes, Factory Droid, Mistral Vibe, GitHub Copilot CLI), SHA-256 integrity verification, hook version checking, audit log analysis, `privacytk rewrite` CLI entry point, and TOML filter trust management.
+
+Fork-only: `privacytk init -g` installs **two** hooks by default (`PreToolUse` for Bash rewrite + `SessionStart` for CFD context injection). The upstream-style pre-commit audit gate is **not** installed by default; see [docs/CORPORATE.md §2d](../../docs/CORPORATE.md).
 
 Does **not** own: the deployed hook scripts themselves (that's `hooks/`), the rewrite pattern registry (that's `discover/`), or command filtering (that's `cmds/`).
 
