@@ -239,6 +239,22 @@ Three installation paths. Pick the one that matches your role.
 
 ### Path 1 — Developer (you, on your laptop, want to try it)
 
+The simplest path is the bundled installer. From a clone of this repo:
+
+```bash
+./install.sh --verify          # build from source, install to ~/.local/bin, run smoke battery
+# or, for Claude Code hooks in the same run:
+./install.sh --verify --agent claude
+```
+
+The script auto-detects OS and arch, requires Rust 1.91+, builds the
+release binary, and installs it. Pass `--user` to force `~/.local/bin`
+or `--system` to force `/usr/local/bin` (root-only).
+
+If you do not have a clone, the script also accepts a git URL via
+`PRIVACYTK_REPO=https://your-internal-mirror/privacytk.git ./install.sh`.
+For developers who want the manual path:
+
 ```bash
 # 1. Get Rust 1.91+ if you don't have it (skip if you already do).
 brew install rustup        # macOS
