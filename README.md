@@ -251,6 +251,20 @@ The script auto-detects OS and arch, requires Rust 1.91+, builds the
 release binary, and installs it. Pass `--user` to force `~/.local/bin`
 or `--system` to force `/usr/local/bin` (root-only).
 
+**If `cargo` is not on `PATH`**, the script:
+
+1. Prompts interactively: "Install Rust 1.91 via rustup now? [y/N]"
+2. If `n` or non-TTY, prints platform-specific instructions and exits with
+   code 6 (operator runs `brew install rustup`, `apt-get install rustup`,
+   `winget install Rustlang.Rustup`, or the universal rustup installer).
+3. If `y`, downloads and runs the rustup installer (uses Homebrew on
+   macOS, `apt-get` on Linux, the official installer elsewhere), sets the
+   default toolchain to 1.91.0, and resumes the build.
+
+Override the prompt with `--rust-install` (always install) or
+`--no-rust-install` (always abort). Disable the prompt entirely with
+`PRIVACYTK_NO_RUST_PROMPT=1` (CI/automation).
+
 If you do not have a clone, the script also accepts a git URL via
 `PRIVACYTK_REPO=https://your-internal-mirror/privacytk.git ./install.sh`.
 For developers who want the manual path:

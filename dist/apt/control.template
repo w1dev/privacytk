@@ -1,0 +1,28 @@
+Package: privacytk
+Version: ${VERSION}
+Architecture: ${ARCH}
+Maintainer: <MAINTAINER>
+Section: utils
+Priority: optional
+Depends: libc6
+Recommends: cosign
+Conflicts:
+Replaces:
+Provides: privacytk
+Description: corporate LLM-agent output filter
+ privacytk is a corporate fork of rtk-ai/rtk v0.49.0 tuned for environments
+ where the CLI cannot, by policy, exfiltrate code, secrets, or usage data.
+ .
+ Features:
+  - 100% of the upstream token-compression filters (git, cargo, cargo
+    test, pytest, go test, docker ps, kubectl, etc.).
+  - No telemetry: ureq removed, telemetry POST site compiled out.
+  - Default-deny network: every outbound URL must pass an explicit
+    allowlist at /etc/skel/.config/privacytk/network.toml.
+  - Local secrets/PII scanner (privacytk audit) with redacted previews.
+  - CFD integration: cfd-context auto-injects on Claude Code SessionStart.
+  - Ephemeral mode: PRIVACYTK_EPHEMERAL=1 routes SQLite to :memory:.
+ .
+ Provenance: the .deb ships with an SBOM (SPDX 2.3 + CycloneDX 1.5) and
+ a cosign signature. Verify before installing.
+Homepage: https://internal.example.com/privacytk
