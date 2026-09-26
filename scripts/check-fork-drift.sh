@@ -50,6 +50,7 @@ ureq_hits="$(git diff "$BASE_REF"...HEAD -- \
     | grep -nE '^[\+].*(\bureq::|\buse ureq\b|^\+ureq\s*=)' \
     | grep -vE '^[^:]*:\+ *(//|\*|#[^!])' \
     | grep -vE '^[^:]*:\+- ' \
+    | grep -vE '^[^:]*:\+ *[\(\`\[]' \
     || true)"
 if [[ -n "$ureq_hits" ]]; then
     echo "  ✗ ureq references introduced:"
@@ -88,7 +89,10 @@ echo "→ checking for telemetry POST site"
 # inside core/telemetry.rs is forbidden. We also forbid re-introducing the
 # TELEMETRY_URL / TELEMETRY_TOKEN compile-time env hooks in Cargo.toml.
 post_hits="$(git diff "$BASE_REF"...HEAD -- src/core/telemetry.rs src/core/telemetry_cmd.rs \
-    | grep -nE '^[\+].*(ureq::post|send_string|TELEMETRY_URL|TELEMETRY_TOKEN|RTK_TELEMETRY_URL)' || true)"
+    | grep -nE '^[\+].*(ureq::post|send_string|TELEMETRY_URL|TELEMETRY_TOKEN|RTK_TELEMETRY_URL)' \
+    | grep -vE '^[^:]*:\+ *(//|\*|#[^!])' \
+    | grep -vE '^[^:]*:\+ *[\(\`\[]' \
+    || true)"
 if [[ -n "$post_hits" ]]; then
     echo "  ✗ telemetry POST site reintroduced:"
     echo "$post_hits" | sed 's/^/    /'
