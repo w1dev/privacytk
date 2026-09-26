@@ -1,0 +1,185 @@
+# Core Infrastructure
+
+> See also [docs/contributing/TECHNICAL.md](../../docs/contributing/TECHNICAL.md) for the full architecture overview
+
+## Scope
+
+Domain-agnostic building blocks with **no knowledge of any specific command, hook, or agent**. If a module references "git", "cargo", "claude", or any external tool by name, it does not belong here. Core is a leaf in the dependency graph — it is consumed by all other components but imports from none of them.
+
+Owns: configuration loading, token tracking persistence, TOML filter engine, tee output recovery, display formatting, telemetry, and shared utilities.
+
+Does **not** own: command-specific filtering logic (that's `cmds/`), hook lifecycle management (that's `src/hooks/`), or analytics dashboards (that's `analytics/`).
+
+## Purpose
+Core infrastructure shared by all RTK command modules. Every filter, tracker, and command handler depends on these modules. No inward dependencies — leaf in the dependency graph (no circular imports possible).
+
+## TOML Filter Pipeline
+
+The TOML DSL applies 8 stages in order:
+
+1. **strip_ansi**: Remove ANSI escape codes if enabled
+2. **replace**: Line-by-line regex substitutions (chainable, supports backreferences)
+3. **match_output**: Short-circuit rules (if output matches pattern, return message; `unless` field prevents swallowing errors)
+4. **strip/keep_lines**: Filter lines by regex (mutually exclusive)
+5. **truncate_lines_at**: Truncate each line to N chars (unicode-safe)
+6. **head/tail_lines**: Keep first N or last N lines (with omit message)
+7. **max_lines**: Absolute line cap applied after head/tail
+8. **on_empty**: Return message if result is empty after all stages
+
+Three-tier filter lookup (first match wins):
+1. `.rtk/filters.toml` (project-local, requires `rtk trust`)
+2. `~/.config/rtk/filters.toml` (user-global)
+3. Built-in filters concatenated by `build.rs` at compile time
+
+## Source File Comment Stripping
+
+`src/core/filter.rs` is a separate engine from the TOML DSL: it filters *source
+files* (used by `rtk read`) rather than command output. At `-l minimal` it
+strips comments using the per-language delimiters in
+`Language::comment_patterns()`.
+
+Python does not use that walk. It has no block comments — `"""` opens a
+*string*, which may be a docstring or an ordinary value — so it gets a
+string-aware path that removes `#` comments and leaves string contents alone.
+Matching `"""` as a block delimiter misread both of these:
+
+```python
+QUERY = """          # contains """ without starting with it
+SELECT 1
+"""
+
+"""Module doc."""    # opens and closes on one line
+```
+
+Docstrings are kept at `minimal`. `aggressive` has no string awareness: it
+keeps a line inside a string when that line looks like an import or a
+signature.
+
+## Tracking Database Schema
+
+```sql
+CREATE TABLE commands (
+  id INTEGER PRIMARY KEY,
+  timestamp TEXT,              -- UTC ISO8601
+  original_cmd TEXT,           -- "ls -la"
+  rtk_cmd TEXT,                -- "rtk ls"
+  project_path TEXT,           -- cwd (for project-scoped stats)
+  input_tokens INTEGER,        -- estimated from raw output (bytes / 4, no tokenizer)
+  output_tokens INTEGER,       -- estimated from filtered output (bytes / 4)
+  saved_tokens INTEGER,        -- input - output
+  savings_pct REAL,            -- (saved / input) * 100, i.e. reduction in bash output bytes
+  exec_time_ms INTEGER         -- elapsed milliseconds
+);
+
+CREATE TABLE parse_failures (
+  id INTEGER PRIMARY KEY,
+  timestamp TEXT,
+  raw_command TEXT,
+  error_message TEXT,
+  fallback_succeeded INTEGER   -- 1=yes, 0=no
+);
+```
+
+Project-scoped queries use GLOB patterns (not LIKE) to avoid `_`/`%` wildcard issues in paths.
+
+## Config Sections
+
+```toml
+[tracking]
+enabled = true
+history_days = 90
+database_path = "/custom/path/to/tracking.db"  # Optional
+
+[display]
+colors = true
+emoji = true
+max_width = 120
+
+[retriever]
+mode = "sqlite"             # sqlite (default) | tee (legacy files) | disabled
+max_entry_bytes = 10485760  # sqlite: 10 MiB per entry
+max_entries = 200           # sqlite: FIFO cap
+retention_days = 30         # sqlite: 0 disables age eviction
+compression = true          # sqlite: gzip blobs (lossless)
+# database_path = "/custom/recall.db"
+tee_max_files = 20          # tee mode: rotation
+tee_max_file_size = 1048576 # tee mode: per-file cap
+# tee_directory = "/custom/tee/dir"
+
+[telemetry]
+enabled = true
+
+[hooks]
+exclude_commands = ["curl", "playwright"]  # Never auto-rewrite these
+
+[limits]
+grep_max_results = 200
+grep_max_per_file = 25
+status_max_files = 15
+status_max_untracked = 10
+passthrough_max_chars = 2000
+```
+
+## Shared Utilities (utils.rs)
+
+Key functions available to all command modules:
+
+| Function | Purpose |
+|----------|---------|
+| `truncate(s, max)` | Truncate string with `...` suffix |
+| `strip_ansi(text)` | Remove ANSI escape/color codes |
+| `resolved_command(name)` | Find command in PATH, returns `Command` |
+| `tool_exists(name)` | Check if a CLI tool is available |
+| `detect_package_manager()` | Detect pnpm/yarn/npm from lockfiles |
+| `package_manager_exec(tool)` | Build `Command` using detected package manager |
+| `ruby_exec(tool)` | Auto-detect `bundle exec` when `Gemfile` exists |
+| `count_tokens(text)` | Estimate tokens: `ceil(chars / 4.0)` |
+
+## Argument Tokenizer (arg_tokenizer.rs)
+
+Shared classifier for an already-`--`-restored args slice (see `args_utils::restore_double_dash`) into flags, their values, and positionals. `tokenize_grammar` takes a `takes_value(kind, name)` predicate the caller supplies — the list of which flags take a value is per-tool, but the token-walking around it isn't. `tokenize(args)` is the structural-only entry point, for a caller asking which arguments are flags and where `--` is; it assumes **no flag takes a value**, so anything reading a value or counting free positionals needs `tokenize_grammar`.
+
+**Use it for anything that decides what an argument is.** A new command filter, a new flag on an existing one, or a fix to how one is detected goes through `tokenize_grammar` — not `starts_with('-')`, not `args.iter().any(|a| a == "--flag")`. Those miss exactly what this module exists for: a flag's own value (`git log --grep -p` searches for the string "-p"), an attached value (`--flag=v`, `/bl:x`), a short cluster (`-rn`), and everything past `--`. Every bug the migration fixed was one of those four.
+
+Four rules, each of which cost a real bug before it was written down:
+
+- **One grammar per tool and subcommand.** Never reuse a sibling's predicate wholesale because it looks close enough — `-u` means `-p` in `git log` but `--include-untracked` in `git stash show`, and `-T` is `--initial-tab` in grep but `--type-not` in rg. Transcribe from the tool's own `--help` and verify against the real binary; grep and rg share 13 of ~50 value-taking flags, so one merged table is wrong for both.
+- **Scope the lookup to the region the tool parses.** Everything past `--` is a pathspec or an argument forwarded to another program — `before_dashdash` gives the tool's own tokens. `Dialect::Msbuild` keeps classifying past the boundary (it forwards rather than ending option parsing), which makes this explicit slice mandatory there, not optional.
+- **Inject before the boundary.** RTK's own flags go at `injection_point`, never appended: dotnet parks anything after `--` in UnparsedTokens and git reads it as a pathspec, so an appended `--verify-no-changes` silently does nothing.
+- **Detect and act with one rule.** Strip or inject using the detected token's `source_index`; re-matching the text lets the two disagree, which deleted a pathspec named `--no-compact` and swallowed a forwarded `--write`.
+
+`takes_value` returns `Option<ValueSpec>`, not a `bool`: one table per tool, answering every question the tokenizer has about a flag's value rather than one predicate per question, which is how two lists start drifting apart.
+
+- `ValueSpec::value()` — `--flag=v` or `--flag v`, and a literal `--` is the boundary. The common case.
+- `ValueSpec::attached_only()` — `--flag=v` only, the next argument is never the value (git's `-M`/`-U`/`-C`/`-B` take an optional attached number and nothing else).
+- `ValueSpec::solo_only()` — a `Short` flag takes a separate value only when it is the whole argument: `git log -n 2` does, `git log -pn 2` does not. No meaning for a `Long` flag.
+- `.claiming_dash_dash()` — lets a literal `--` be this flag's value. A per-tool split, not per-flag: grep and rg let any value-taking flag swallow it, git and cargo reject it whichever flag is asking.
+
+The dialect is the one axis that is not per-flag, so it stays a parameter: `tokenize_grammar(args, takes_value, Dialect::Msbuild)`.
+
+## Consumer Contracts
+
+Core provides infrastructure that `cmds/` and other components consume. These contracts define expected usage.
+
+### Tracking (`TimedExecution`)
+
+Consumers must call `timer.track()` on **all** code paths — success, failure, and fallback. Calling `std::process::exit()` before `track()` loses metrics. The raw string passed to `track()` should include both stdout and stderr to produce accurate savings percentages.
+
+### Output recovery (`tee_and_hint` + recall store)
+
+Consumers that parse structured output (JSON, NDJSON, state machines) should call `tee::tee_and_hint()` to persist raw output for LLM recovery on failure. It must be called before `std::process::exit()`.
+
+For truncation recovery on **success** (e.g. a list capped at 20 items), use `tee::force_tee_hint()` (multi-line blocks) or `tee::force_tee_tail_hint(content, slug, offset)` (flat lists). All three persist the full output to the content-addressed recall store ([`retriever.rs`](retriever.rs)) and emit a runnable hint — `[full output: rtk recall <hash>]` or `[+N hidden: rtk recall <hash>]` — instead of burning tokens working around missing data.
+
+The agent runs `rtk recall <hash>` to get back exactly what was elided. For `force_tee_tail_hint`, `offset` is the 1-based first hidden line (`header_lines + MAX_CAP + 1`); it is stored so the default recall returns only the hidden tail. Storage is byte-faithful (`BLOB` + lossless gzip); tune limits via the `[retriever]` config section.
+
+### Truncation Caps (`truncate`)
+
+`src/core/truncate.rs` defines four global cap policies — `CAP_ERRORS`, `CAP_WARNINGS`, `CAP_LIST`, `CAP_INVENTORY` — for the data classes RTK filters truncate. Each filter binds the right CAP to a local `const MAX_*` so the cap is one named jump away from the call site. These CAPs are the staging point for filter-level cap configuration (planned, not yet implemented): once the config surface lands, overriding `CAP_LIST` in `~/.config/rtk/config.toml` will tune every list filter in one place instead of editing 20+ files.
+
+**Config policy.** Configured values are accepted as-is, including `0`, which means "summary only" — the filter still prints the count and the `[full output: …]` recovery hint, just no individual items. Caps are never refused and rtk never aborts on them, in keeping with the never-block-the-user fallback philosophy.
+
+**Deviating from a cap.** A filter whose items are unusually verbose (multi-line entries, backtraces) may show fewer than its class cap. Use `truncate::reduced(cap, by)` rather than a bare `cap - by`: `reduced` returns `cap - by`, except when the reduction would empty the list (`by >= cap`), in which case it drops the deviation and uses the full `cap`. This guarantees a deviation can never hide every item, and — crucially — stays a `usize`-underflow-safe `const fn` once caps become runtime-configurable (a bare `CAP_WARNINGS - 5` would panic or wrap to "no truncation" if a user set `CAP_WARNINGS` below `5`). Never deviate with a bare literal or with `*`/`/` (those scale unboundedly). Each deviation needs a one-line comment stating why.
+
+## Adding New Functionality
+Place new infrastructure code here if it meets **all** of these criteria: (1) it has no dependencies on command modules or hooks, (2) it is used by two or more other modules, and (3) it provides a general-purpose utility rather than command-specific logic. Follow the existing pattern of lazy-initialized resources (`LazyLock` for regex, on-demand config loading) to preserve the <10ms startup target. Add `#[cfg(test)] mod tests` with unit tests in the same file.

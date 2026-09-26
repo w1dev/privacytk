@@ -1,0 +1,64 @@
+name: Fork CI
+
+# Lean CI for the privacytk fork. Does NOT reuse the upstream ci.yml because
+# that pipeline builds with RTK_TELEMETRY_URL set (CI-managed), hits the
+# Anthropic API for docs review, and assumes an rtk-ai.app release artifact.
+# This workflow only validates:
+#   - cargo build --release (compiles)
+#   - cargo test --bin privacytk drift_check (the corporate invariants)
+#   - scripts/check-fork-drift.sh (the file-level invariants)
+# It runs on every PR and push to main. No outbound network beyond the
+# crates.io registry (cargo build) and no third-party API keys.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  drift:
+    name: Drift check (bash + cargo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # HEAD and HEAD~1 so the script can compare
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.91.0
+      - name: Run drift shell script
+        run: bash scripts/check-fork-drift.sh HEAD~1
+      - name: Run drift cargo tests
+        run: cargo test --bin privacytk --release core::drift_check -- --nocapture
+      - name: Build release
+        run: cargo build --release
+      - name: Smoke binary
+        run: |
+          ./target/release/privacytk --version
+          ./target/release/privacytk telemetry status
+          ./target/release/privacytk verify-network api.example.com
+
+  audit-smoke:
+    name: Audit scanner smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.91.0
+      - name: Build
+        run: cargo build --release
+      - name: Synthetic secrets tree
+        run: |
+          mkdir -p /tmp/audit-smoke
+          printf 'AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP\n' > /tmp/audit-smoke/env
+          printf 'token = ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n' > /tmp/audit-smoke/.npmrc
+          printf '-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n' > /tmp/audit-smoke/k.pem
+      - name: Scan
+        run: ./target/release/privacytk audit /tmp/audit-smoke --human
+      - name: Expect exit 1 on hits
+        run: |
+          set +e
+          ./target/release/privacytk audit /tmp/audit-smoke --human > /dev/null
+          echo "exit=$?"
+          test "$?" = "1"

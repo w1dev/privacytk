@@ -1,0 +1,95 @@
+[package]
+name = "privacytk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+authors = ["Corporate Privacy Tooling"]
+description = "Corporate fork of rtk with no telemetry, no outbound by default, and audit hooks"
+license = "Apache-2.0"
+# Intentionally no homepage / repository. The fork is internal and must not
+# redirect to the upstream project or its docs.
+readme = "README.md"
+keywords = ["cli", "llm", "token", "filter", "privacy", "corporate"]
+categories = ["command-line-utilities", "development-tools"]
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+anyhow = "1.0"
+# Console code page decoding for child-process output. Kept off the
+# cfg(windows) target so the mapping and the incremental UTF-8 walk stay
+# compiled — and unit-tested — on every platform; only the code page *lookup*
+# is Windows-specific. codepage covers the ANSI/DBCS pages encoding_rs
+# implements, oem_cp the legacy OEM/DOS pages (437, 850, …) it does not.
+encoding_rs = "0.8"
+codepage = "0.1"
+oem_cp = "2"
+ignore = "0.4"
+walkdir = "2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+colored = "3"
+dirs = "5"
+rusqlite = { version = "0.31", features = ["bundled"] }
+toml = "0.8"
+toml_edit = "0.22"
+chrono = "0.4"
+tempfile = "3"
+sha2 = "0.10"
+# ureq removed: telemetry no longer POSTs anywhere. Any future outbound traffic
+# must route through `core::network_guard` so the corporate allowlist gates it.
+getrandom = "0.4"
+flate2 = "1.0"
+quick-xml = "0.37"
+which = "8"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_System_Console",
+    "Win32_Globalization",
+] }
+
+[build-dependencies]
+toml = "0.8"
+
+[dev-dependencies]
+# Safe, closure-scoped env mutation for tests. std::env::set_var is unsafe
+# in edition 2024 and has no safe std replacement; temp-env restores the
+# previous value on completion or panic and serializes callers internally.
+temp-env = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# cargo-deb configuration
+[package.metadata.deb]
+maintainer = "Corporate Privacy Tooling"
+copyright = "2026 Corporate Privacy Tooling"
+license-file = ["LICENSE", "0"]
+extended-description = "privacytk filters and compresses command outputs before they reach your LLM context. Corporate fork: zero outbound by default, secrets/PII audit, allowlist-based network guard."
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/privacytk", "usr/bin/", "755"],
+]
+# cargo-generate-rpm configuration
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/privacytk", dest = "/usr/bin/privacytk", mode = "755" },
+]
+
+[lints.rust]
+unsafe_code = "deny"
+# Fork policy: upstream keeps `warnings = "deny"`, but privacytk adds modules
+# without auditing every legacy symbol. Treat warnings as warnings, not errors,
+# so a quiet refactor upstream does not brick the fork. New code added in
+# privacytk must still pass `#![warn(missing_docs)]` etc. via clippy.
+warnings = "warn"
