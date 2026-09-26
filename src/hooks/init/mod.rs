@@ -1238,14 +1238,17 @@ pub(super) fn insert_hook_entry(root: &mut serde_json::Value, hook_command: &str
     )
 }
 
-/// Insert the full corporate fork hook set: the upstream `PreToolUse`
-/// (Bash rewrite) + a `SessionStart` hook that injects the CFD manifest
-/// + a second `PreToolUse` (Bash) that gates `git commit` on `audit`.
+/// Insert the corporate fork hook set: the upstream `PreToolUse` (Bash
+/// rewrite) + a `SessionStart` hook that injects the CFD manifest. The
+/// corporate fork does **not** install a pre-commit audit gate by default
+/// — the operator's flow is PR-based with human review, and the audit
+/// stays available as a manual command (`privacytk audit <path>`) and as
+/// a hook subcommand (`privacytk hook pre-commit-gate`) the operator
+/// can wire up via a git `core.hooksPath` if they want to gate locally.
 pub(super) fn insert_corporate_hooks(
     root: &mut serde_json::Value,
     claude_hook: &str,
     session_start_hook: &str,
-    pre_commit_gate_hook: &str,
 ) -> Result<()> {
     if !root.is_object() {
         *root = serde_json::json!({});
@@ -1271,18 +1274,6 @@ pub(super) fn insert_corporate_hooks(
             serde_json::json!({
                 "matcher": "",
                 "hooks": [{"type": "command", "command": session_start_hook}]
-            }),
-        )?;
-    }
-
-    // 3. Pre-commit audit gate.
-    if !hook_command_already_present(root, PRE_TOOL_USE_KEY, pre_commit_gate_hook) {
-        append_hook_entry(
-            root,
-            PRE_TOOL_USE_KEY,
-            serde_json::json!({
-                "matcher": "Bash",
-                "hooks": [{"type": "command", "command": pre_commit_gate_hook}]
             }),
         )?;
     }

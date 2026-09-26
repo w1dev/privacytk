@@ -329,16 +329,15 @@ fn drift_script_present_and_executable() {
 }
 #[test]
 fn corporate_hooks_installed_by_init() {
-    // The init flow must wire all three hooks: Bash rewrite,
-    // SessionStart CFD injection, pre-commit audit gate.
+    // The init flow must wire exactly two hooks: Bash rewrite
+    // (PreToolUse) and SessionStart CFD injection. The pre-commit audit
+    // gate was removed when the operator moved to a PR-based flow with
+    // human review; if it ever reappears, drift this test to add an
+    // assertion for the third hook command.
     let main = read("src/main.rs");
     assert!(
         main.contains("HookCommands::SessionStart"),
         "main.rs must dispatch HookCommands::SessionStart"
-    );
-    assert!(
-        main.contains("HookCommands::PreCommitGate"),
-        "main.rs must dispatch HookCommands::PreCommitGate"
     );
     let constants = read("src/hooks/constants.rs");
     assert!(
@@ -346,8 +345,9 @@ fn corporate_hooks_installed_by_init() {
         "src/hooks/constants.rs must declare SESSION_START_HOOK_COMMAND"
     );
     assert!(
-        constants.contains("PRE_COMMIT_GATE_HOOK_COMMAND"),
-        "src/hooks/constants.rs must declare PRE_COMMIT_GATE_HOOK_COMMAND"
+        !constants.contains("PRE_COMMIT_GATE_HOOK_COMMAND"),
+        "src/hooks/constants.rs must NOT declare PRE_COMMIT_GATE_HOOK_COMMAND — \
+         the corporate fork assumes PR-based flow with human review"
     );
     let init = read("src/hooks/init/mod.rs");
     assert!(

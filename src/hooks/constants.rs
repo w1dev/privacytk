@@ -26,9 +26,6 @@ pub const VIBE_HOOK_COMMAND: &str = "privacytk hook vibe";
 /// Claude Code concatenates stdout from SessionStart hooks into the
 /// session's opening context.
 pub const SESSION_START_HOOK_COMMAND: &str = "privacytk hook session-start";
-/// Pre-commit audit gate: aborts the Bash tool call when the command is
-/// `git commit` and `privacytk audit` reports hits.
-pub const PRE_COMMIT_GATE_HOOK_COMMAND: &str = "privacytk hook pre-commit-gate";
 
 pub const CONFIG_DIR: &str = ".config";
 pub const OPENCODE_SUBDIR: &str = "opencode";
