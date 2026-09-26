@@ -104,6 +104,7 @@ required_files=(
     "src/core/network_guard.rs"
     "src/core/audit.rs"
     "src/core/dedup.rs"
+    "src/core/cfd.rs"
     "docs/CORPORATE.md"
     "scripts/check-fork-drift.sh"
 )
@@ -136,6 +137,7 @@ marker_files=(
     "src/core/network_guard.rs"
     "src/core/audit.rs"
     "src/core/dedup.rs"
+    "src/core/cfd.rs"
 )
 marker_needles=(
     'pub const RTK_DATA_DIR: &str = "privacytk"'
@@ -144,6 +146,7 @@ marker_needles=(
     'default_deny'
     'Local secrets/PII scanner'
     'PRIVACYTK_DEDUP'
+    'Context-First Development'
 )
 marker_missing=0
 for i in "${!marker_files[@]}"; do

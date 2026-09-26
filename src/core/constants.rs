@@ -35,4 +35,6 @@ pub const RTK_META_COMMANDS: &[&str] = &[
     "where-state",
     "network-audit",
     "dedup",
+    "cfd",
+    "cfd-context",
 ];

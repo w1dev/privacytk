@@ -1037,6 +1037,42 @@ enum Commands {
         #[command(subcommand)]
         action: Option<DedupAction>,
     },
+
+    /// Read the CFD decisions index. By default lists the index. With a
+    /// query, prints the matching ADRs (titles + status). With `--id`,
+    /// prints the full ADR file. With `--status`, filters by status.
+    /// Compatible with both the template table form and the prose-bullet
+    /// form used by the upstream CFD repo.
+    Cfd {
+        /// Search query (matches id, title, status — AND of terms).
+        query: Vec<String>,
+        /// Lookup by exact ADR id (e.g. "014" or "ADR-014").
+        #[arg(long, value_name = "ID")]
+        id: Option<String>,
+        /// Filter by status (e.g. "Accepted", "Proposed").
+        #[arg(long)]
+        status: Option<String>,
+        /// When using `--id`, print a one-line summary instead of the
+        /// full ADR file.
+        #[arg(long)]
+        summary: bool,
+        /// Path to the repo root (defaults to ".").
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+
+    /// Emit a CFD-aware session-start manifest: CLAUDE.md + the
+    /// decisions index + the In Progress / Next Priorities blocks of
+    /// CURRENT_STATUS.md + the N most recent ADRs. The single artefact
+    /// an agent should load at /session:start.
+    CfdContext {
+        /// Number of recent ADRs to include (default 3).
+        #[arg(long, default_value = "3")]
+        top_adrs: usize,
+        /// Path to the repo root (defaults to ".").
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2988,6 +3024,103 @@ fn run_cli() -> Result<i32> {
                 0
             }
         },
+
+        Commands::Cfd { query, id, status, summary, repo } => {
+            let repo_root = repo.unwrap_or_else(|| std::path::PathBuf::from("."));
+            let index_path = match core::cfd::locate_index(&repo_root) {
+                Some(p) => p,
+                None => {
+                    eprintln!(
+                        "cfd: no decisions index at {} (expected docs/decisions/_index.md or adrs/_index.md)",
+                        repo_root.display()
+                    );
+                    return Ok(2);
+                }
+            };
+            let idx = match core::cfd::parse_index(&index_path) {
+                Ok(i) => i,
+                Err(e) => {
+                    eprintln!("cfd: parse error: {e}");
+                    return Ok(2);
+                }
+            };
+
+            if let Some(id_str) = id {
+                match core::cfd::find_by_id(&idx, &id_str) {
+                    Some(adr) => {
+                        if summary {
+                            match core::cfd::read_adr(&adr) {
+                                Some(content) => println!("{}", core::cfd::summarize_adr(&content)),
+                                None => eprintln!("cfd: ADR file not found at {}", adr.path.display()),
+                            }
+                        } else {
+                            match core::cfd::read_adr(&adr) {
+                                Some(content) => print!("{}", content),
+                                None => eprintln!(
+                                    "cfd: ADR {} resolved to {} but the file does not exist",
+                                    adr.id,
+                                    adr.path.display()
+                                ),
+                            }
+                        }
+                    }
+                    None => {
+                        eprintln!("cfd: ADR id '{}' not found in index", id_str);
+                        eprintln!("\nAvailable IDs:");
+                        for r in &idx.rows {
+                            eprintln!("  {}  {}", r.id, r.title);
+                        }
+                        return Ok(1);
+                    }
+                }
+                return Ok(0);
+            }
+
+            if let Some(status_str) = status {
+                let r = core::cfd::filter_by_status(&idx, &status_str);
+                if r.is_empty() {
+                    eprintln!("cfd: no ADRs with status '{}'", status_str);
+                    return Ok(1);
+                }
+                println!("# ADRs with status: {status_str}");
+                for adr in &r {
+                    println!("  {}  {}", adr.id, adr.title);
+                }
+                return Ok(0);
+            }
+
+            if !query.is_empty() {
+                let q = query.join(" ");
+                let r = core::cfd::search(&idx, &q);
+                if r.is_empty() {
+                    eprintln!("cfd: no ADRs match query '{}'", q);
+                    return Ok(1);
+                }
+                println!("# ADRs matching: {q}");
+                for adr in &r {
+                    println!("  {}  [{}]  {}", adr.id, adr.status, adr.title);
+                }
+                return Ok(0);
+            }
+
+            // No flags, no query: print the index as a table.
+            print!("{}", core::cfd::render_index(&idx));
+            0
+        }
+
+        Commands::CfdContext { top_adrs, repo } => {
+            let repo_root = repo.unwrap_or_else(|| std::path::PathBuf::from("."));
+            match core::cfd::session_manifest(&repo_root, top_adrs) {
+                Ok(m) => {
+                    print!("{}", m.render());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("cfd-context: {e}");
+                    1
+                }
+            }
+        }
 
         Commands::Learn {
             project,

@@ -183,6 +183,48 @@ fn dedup_subcommand_is_meta() {
 }
 
 #[test]
+fn cfd_module_present_and_parses_both_forms() {
+    let c = read("src/core/cfd.rs");
+    assert!(
+        c.contains("parse_table"),
+        "src/core/cfd.rs must parse table-form decisions indexes"
+    );
+    assert!(
+        c.contains("parse_bullets"),
+        "src/core/cfd.rs must parse bullet-form decisions indexes"
+    );
+    assert!(
+        c.contains("IndexFormat"),
+        "src/core/cfd.rs must declare the IndexFormat enum"
+    );
+}
+
+#[test]
+fn cfd_subcommand_is_meta_and_local_only() {
+    let main = read("src/main.rs");
+    assert!(
+        main.contains("Commands::Cfd"),
+        "main.rs must dispatch Commands::Cfd"
+    );
+    assert!(
+        main.contains("Commands::CfdContext"),
+        "main.rs must dispatch Commands::CfdContext"
+    );
+    // The CFD lookup path must never resolve a network URL or call into
+    // ureq / reqwest — it is a local-only filesystem reader.
+    let c = read("src/core/cfd.rs");
+    assert!(
+        !c.contains("ureq") && !c.contains("reqwest") && !c.contains("TcpStream"),
+        "src/core/cfd.rs must be local-only — no network calls"
+    );
+    let constants = read("src/core/constants.rs");
+    assert!(
+        constants.contains("\"cfd\"") && constants.contains("\"cfd-context\""),
+        "RTK_META_COMMANDS must include both \"cfd\" and \"cfd-context\""
+    );
+}
+
+#[test]
 fn audit_module_present_and_redacts() {
     let a = read("src/core/audit.rs");
     assert!(
