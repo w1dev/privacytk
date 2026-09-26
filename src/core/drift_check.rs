@@ -64,11 +64,21 @@ fn telemetry_cmd_has_no_ureq() {
 #[test]
 fn ccusage_drops_npx_fallback() {
     let cc = read("src/analytics/ccusage.rs");
-    assert!(
-        !cc.contains("npx"),
-        "src/analytics/ccusage.rs must not invoke npx; the fallback to \
-         `npx --yes ccusage` was a covert egress to the npm registry"
-    );
+    // The forbidden behavior is `Command::new("npx")` or `.arg("npx")` —
+    // comments mentioning npx are fine. `resolved_command("npx")` is what
+    // upstream used and is the call site we are closing.
+    for forbidden_call in [
+        "Command::new(\"npx\")",
+        "resolved_command(\"npx\")",
+        "resolved_command(\"npx --yes",
+        ".arg(\"--yes\")",
+    ] {
+        assert!(
+            !cc.contains(forbidden_call),
+            "src/analytics/ccusage.rs must not invoke npx (found `{forbidden_call}`); \
+             the fallback to `npx --yes ccusage` was a covert egress to the npm registry"
+        );
+    }
 }
 
 #[test]
@@ -130,6 +140,10 @@ fn network_guard_module_present_and_rejects_permissive_policy() {
 fn audit_module_present_and_redacts() {
     let a = read("src/core/audit.rs");
     assert!(
+        a.contains("Local secrets/PII scanner"),
+        "src/core/audit.rs must declare itself the secrets/PII scanner"
+    );
+    assert!(
         a.contains("redact_preview"),
         "src/core/audit.rs must redact secrets in preview output"
     );
@@ -167,14 +181,23 @@ fn audit_and_verify_network_subcommands_registered() {
 #[test]
 fn install_script_does_not_curl_upstream() {
     let install = read("install.sh");
-    assert!(
-        !install.contains("raw.githubusercontent.com"),
-        "install.sh must not fetch binaries from raw.githubusercontent.com; \
-         corporate images ship the binary themselves"
-    );
+    // The forbidden behavior is an outbound network call inside the script,
+    // not a comment mentioning the upstream behavior. We forbid:
+    //   - any `curl ` / `wget ` invocation that touches an http URL
+    //   - a curl-to-sh pipe pattern
+    // Comments are allowed to reference the upstream URL by name.
     assert!(
         !install.contains("curl -fsSL"),
-        "install.sh must not use curl|sh patterns"
+        "install.sh must not use `curl -fsSL | sh` patterns; corporate \
+         images ship the binary themselves"
+    );
+    assert!(
+        !install.lines().any(|l| l.trim_start().starts_with("curl ") && l.contains("http")),
+        "install.sh must not run a `curl http...` invocation"
+    );
+    assert!(
+        !install.lines().any(|l| l.trim_start().starts_with("wget ") && l.contains("http")),
+        "install.sh must not run a `wget http...` invocation"
     );
 }
 

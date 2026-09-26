@@ -172,6 +172,26 @@ context (it can confirm a guess).
   `src/core/audit.rs`, the `audit` and `verify-network` arms in
   `main.rs`, and the `Cargo.toml` rename) must be re-applied.
 
+### Drift check automation
+
+Two gates run in CI on every PR. Both must pass.
+
+**Shell script** (`scripts/check-fork-drift.sh [BASE_REF]`):
+- diff-greps `ureq::`, `npx ccusage`, and `TELEMETRY_URL`/telemetry POST
+  patterns against the upstream side;
+- asserts four fork-owned files still exist;
+- asserts the fork's distinguishing markers are present.
+
+**Cargo test** (`cargo test --bin privacytk core::drift_check`):
+15 assertions over the in-tree source. Runs without `git diff` or a
+remote, so it catches the same drift even on developer laptops or in
+CI runners that don't have `rtk-ai/rtk` cloned.
+
+The GitHub Actions workflow at
+`.github/workflows/fork-ci.yml` runs both gates, builds release, and
+executes a synthetic-secrets smoke on `privacytk audit`. No third-party
+API keys, no telemetry endpoints, no Docker required.
+
 ## 7. Emergency: revoke egress
 
 If an incident response reveals that a host on the allowlist is being abused:

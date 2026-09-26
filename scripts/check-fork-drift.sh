@@ -121,17 +121,28 @@ echo
 # These are the strings that distinguish the fork's source from a raw
 # upstream copy. Removing them by accident means someone botched a
 # rebase; the script should fail before review.
+# Parallel arrays (POSIX-portable): bash 3.2 on macOS does not support
+# `declare -A`; this keeps the script runnable on developer laptops without
+# requiring a newer bash.
 echo "→ checking fork markers"
-declare -A markers=(
-    ["src/core/constants.rs"]='pub const RTK_DATA_DIR: &str = "privacytk"'
-    ["src/main.rs"]='name = "privacytk"'
-    ["Cargo.toml"]='name = "privacytk"'
-    ["src/core/network_guard.rs"]='default_deny'
-    ["src/core/audit.rs"]='Audit scanner'
+marker_files=(
+    "src/core/constants.rs"
+    "src/main.rs"
+    "Cargo.toml"
+    "src/core/network_guard.rs"
+    "src/core/audit.rs"
+)
+marker_needles=(
+    'pub const RTK_DATA_DIR: &str = "privacytk"'
+    'name = "privacytk"'
+    'name = "privacytk"'
+    'default_deny'
+    'Local secrets/PII scanner'
 )
 marker_missing=0
-for file in "${!markers[@]}"; do
-    needle="${markers[$file]}"
+for i in "${!marker_files[@]}"; do
+    file="${marker_files[$i]}"
+    needle="${marker_needles[$i]}"
     if ! grep -qF "$needle" "$file" 2>/dev/null; then
         echo "  ✗ marker missing in $file: $needle"
         marker_missing=$((marker_missing + 1))
