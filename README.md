@@ -1,13 +1,21 @@
 # privacytk
 
-Corporate fork of [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) tuned for environments
+> Forked from [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk) at
+> [v0.49.0](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0).
+> privacytk keeps rtk's compression filters and adds the corporate
+> guarantees below. Apache-2.0, inherited from upstream. The
+> `forked from` clause is the only place this README names rtk; the
+> binary, subcommands, hooks, and configuration all live under the
+> `privacytk` namespace.
+
+A corporate fork of [rtk](https://github.com/rtk-ai/rtk) tuned for environments
 where the CLI cannot, by policy, exfiltrate code, secrets, or usage data.
 
-The fork preserves 100% of rtk's token-compression filters for LLM-agent workflows
-(`git`, `cargo`, `cargo test`, `pytest`, `go test`, `docker ps`, `kubectl`, etc.)
-and adds three corporate-only guarantees:
+The fork preserves 100% of the upstream's token-compression filters for
+LLM-agent workflows (`git`, `cargo`, `cargo test`, `pytest`, `go test`,
+`docker ps`, `kubectl`, etc.) and adds three corporate-only guarantees:
 
-1. **No telemetry.** The `ureq`-backed `telemetry::maybe_ping` is gone. `ureq`
+1. **No telemetry.** The `ureq`-backed telemetry POST is gone. `ureq`
    is no longer in `Cargo.toml`. The `telemetry status` command reports
    `(not applicable; this build has no telemetry endpoint)`.
 2. **Default-deny network.** Every outbound URL must pass
@@ -56,14 +64,14 @@ A permissive policy (`default_deny = false`) is rejected at load time.
 
 ## Commands
 
-### Existing rtk commands
+### Existing commands
 
-All of rtk's CLI surface works unchanged: `git`, `cargo`, `gh`, `glab`, `aws`,
+All of the upstream CLI surface works unchanged: `git`, `cargo`, `gh`, `glab`, `aws`,
 `docker`, `kubectl`, `ls`, `grep`, `find`, `read`, `err`, `test`, `json`,
 `deps`, `env`, `log`, `diff`, `summary`, `smart`, etc. See the upstream
-README for the full table — only the names `privacytk init` and
-`privacytk hook` require per-agent path rewrites that still target the same
-hooks directory.
+README (linked at the top of this file) for the full table — only the names
+`privacytk init` and `privacytk hook` require per-agent path rewrites that
+still target the same hooks directory.
 
 ### New in the fork
 
@@ -100,7 +108,7 @@ empty) salt file, the marker file, and the local tracking DB.
 
 ## Threat model
 
-| Channel | Upstream rtk | privacytk |
+| Channel | Upstream | privacytk |
 |---|---|---|
 | Daily telemetry POST to upstream collector | yes (opt-in) | **compiled out** |
 | `npx ccusage` fallback in analytics | yes (network call) | **removed** |
@@ -120,4 +128,4 @@ What privacytk does *not* address:
 
 ## License
 
-Apache-2.0, inherited from `rtk-ai/rtk`. See `LICENSE`.
+Apache-2.0, inherited from the upstream project. See `LICENSE`.

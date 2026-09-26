@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Corporate Privacy Tooling"]
-description = "Corporate fork of rtk with no telemetry, no outbound by default, and audit hooks"
+description = "Corporate LLM-agent output filter: zero telemetry, default-deny network, local secrets audit. See README for upstream provenance."
 license = "Apache-2.0"
 # Intentionally no homepage / repository. The fork is internal and must not
 # redirect to the upstream project or its docs.

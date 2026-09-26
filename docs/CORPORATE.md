@@ -1,5 +1,15 @@
 # Corporate deployment guide
 
+> **Provenance.** privacytk is a corporate fork of
+> [rtk-ai/rtk v0.49.0](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0).
+> All token-compression filters, hook scripts, and benchmark suite come
+> from upstream. The corporate modifications (telemetry removal,
+> default-deny network guard, audit scanner, ephemeral mode, CFD
+> integration, drift-check harness) are listed in the README under
+> "Why this fork exists". This document covers what the README does
+> not: image packaging, policy files, drift detection, and operational
+> audits.
+
 This document covers the operational concerns that aren't in the README:
 image packaging, policy files, and what to audit when you onboard privacytk
 into a regulated environment.
