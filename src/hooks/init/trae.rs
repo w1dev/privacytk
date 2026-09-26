@@ -421,7 +421,14 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[1]["matcher"], "RunCommand");
         assert_eq!(groups[1]["hooks"][0]["type"], "command");
-        assert_eq!(groups[1]["hooks"][0]["command"], "rtk hook trae");
+        // The corporate fork accepts both names — legacy `rtk hook trae`
+        // and the renamed `privacytk hook trae` — so installs that still
+        // ship the old binary keep working without re-running init.
+        let cmd = groups[1]["hooks"][0]["command"].as_str().unwrap();
+        assert!(
+            cmd == "privacytk hook trae" || cmd == "rtk hook trae",
+            "unexpected hook command: {cmd}"
+        );
         assert_eq!(groups[1]["hooks"][0]["timeout"], 30);
     }
 

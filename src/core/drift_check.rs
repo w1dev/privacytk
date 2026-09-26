@@ -327,6 +327,21 @@ fn drift_script_present_and_executable() {
     }
     let _ = meta;
 }
+
+#[test]
+fn drift_script_excludes_itself_from_diff() {
+    // The script's grep patterns (e.g. `ureq::post`) appear in the
+    // script itself. Without the `:!scripts/check-fork-drift.sh`
+    // exclude, the script flags itself as a violation on every run.
+    // Drift-test that the exclude is in place.
+    let script = read("scripts/check-fork-drift.sh");
+    assert!(
+        script.contains(":!scripts/check-fork-drift.sh"),
+        "scripts/check-fork-drift.sh must exclude itself from the \
+         diff it greps, otherwise every change to the script fails \
+         the drift check"
+    );
+}
 #[test]
 fn corporate_hooks_installed_by_init() {
     // The init flow must wire exactly two hooks: Bash rewrite

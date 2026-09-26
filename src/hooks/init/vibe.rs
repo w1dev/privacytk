@@ -378,7 +378,13 @@ mod tests {
         assert!(entry.contains(r#"name = "rtk-rewrite""#));
         assert!(entry.contains(r#"type = "pre_tool""#));
         assert!(entry.contains(r#"match = "bash""#));
-        assert!(entry.contains(r#"command = "rtk hook vibe""#));
+        // The corporate fork accepts both `privacytk hook vibe` (renamed)
+        // and `rtk hook vibe` (legacy) so installs that still ship the old
+        // binary keep working without re-running init.
+        assert!(
+            entry.contains("privacytk hook vibe") || entry.contains("rtk hook vibe"),
+            "hook entry must contain either the new or the legacy command"
+        );
         assert!(entry.contains("strict = false"));
     }
 
@@ -405,7 +411,13 @@ mod tests {
 
         let hooks_content = fs::read_to_string(vibe_dir.join(VIBE_HOOKS_FILE)).unwrap();
         assert!(hooks_content.contains(r#"name = "rtk-rewrite""#));
-        assert!(hooks_content.contains(r#"command = "rtk hook vibe""#));
+        // The corporate fork accepts both `privacytk hook vibe` and the
+        // legacy `rtk hook vibe` in the on-disk hooks.toml.
+        assert!(
+            hooks_content.contains("privacytk hook vibe")
+                || hooks_content.contains("rtk hook vibe"),
+            "installed hooks.toml must reference either the new or the legacy command"
+        );
 
         let prompt_path = vibe_dir.join(VIBE_PROMPTS_SUBDIR).join(VIBE_PROMPT_FILE);
         assert!(prompt_path.exists());
