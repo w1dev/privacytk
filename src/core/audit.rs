@@ -245,6 +245,27 @@ mod tests {
     }
 
     #[test]
+    fn finds_all_four_github_token_prefixes() {
+        // Drift check: the upstream rtk scan caught ghp_ only; the corporate
+        // fork must catch all four official prefixes (ghp_, gho_, ghs_,
+        // ghu_) so that workflows using `gh auth` (gho_), GitHub Apps
+        // (ghs_) and fine-grained PATs (ghu_) are not silently exempt.
+        let s = Scanner::new().unwrap();
+        let cat_label = "GitHub token (ghp_/gho_/ghs_/ghu_)";
+        for prefix in ["ghp_", "gho_", "ghs_", "ghu_"] {
+            let token = format!("{prefix}{}", "a".repeat(40));
+            let hits =
+                s.scan_text(std::path::Path::new("fixture.txt"), &format!("x = {token}"));
+            assert_eq!(hits.len(), 1, "expected 1 hit for prefix {prefix}");
+            assert_eq!(hits[0].category, cat(cat_label));
+            assert!(
+                !hits[0].preview.contains(&token),
+                "preview leaked the full token for prefix {prefix}"
+            );
+        }
+    }
+
+    #[test]
     fn finds_pem_block() {
         let s = Scanner::new().unwrap();
         let hits = s.scan_text(
