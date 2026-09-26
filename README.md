@@ -32,6 +32,7 @@ LLM-agent workflows (`git`, `cargo`, `cargo test`, `pytest`, `go test`,
 
 - [Build](#build)
 - [Distribution & delivery](#distribution--delivery)
+- [Install](#install)
 - [How to test](#how-to-test)
 - [Install the network allowlist](#install-the-network-allowlist)
 - [Commands](#commands)
@@ -229,6 +230,153 @@ echo 'AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP' > /tmp/_audit_smoke/env
 $BIN audit /tmp/_audit_smoke --human
 rm -rf /tmp/_audit_smoke
 ```
+
+---
+
+## Install
+
+Three installation paths. Pick the one that matches your role.
+
+### Path 1 — Developer (you, on your laptop, want to try it)
+
+```bash
+# 1. Get Rust 1.91+ if you don't have it (skip if you already do).
+brew install rustup        # macOS
+# or: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Linux
+rustup default 1.91.0
+
+# 2. Clone and build.
+git clone https://github.com/<your-org>/privacytk.git
+cd privacytk
+cargo build --release
+
+# 3. Install to a directory on PATH.
+install -m 0755 target/release/privacytk ~/.local/bin/privacytk   # macOS / Linux
+# or: sudo cp target/release/privacytk /usr/local/bin/privacytk
+
+# 4. Verify.
+privacytk --version
+# expected: privacytk 0.1.0
+privacytk telemetry status | grep 'this build'
+# expected: "this build has no telemetry endpoint"
+```
+
+The first run writes nothing to `~/.local/share/privacytk/` until you
+invoke a command that touches the tracking DB. Run with
+`PRIVACYTK_EPHEMERAL=1` to keep your laptop clean.
+
+### Path 2 — Claude Code on your workstation
+
+After Path 1 completes:
+
+```bash
+privacytk init -g --agent claude --auto-patch
+```
+
+This installs two hooks into `~/.claude/settings.json`:
+
+- `PreToolUse` (`Bash`): rewrites `git status` → `privacytk git status`
+  (compression auto-applied to every Bash command the agent runs).
+- `SessionStart` (`""`): emits the CFD context bundle at session start
+  so the agent opens with the right context already loaded.
+
+Restart Claude Code. To verify:
+
+```bash
+cat ~/.claude/settings.json | grep -E 'command":' | sort -u
+# expected:
+#   "command": "privacytk hook claude"
+#   "command": "privacytk hook session-start"
+```
+
+Open a Claude Code session and ask anything about your repo. The agent's
+first reply will reflect the CFD context that was injected automatically.
+
+### Path 3 — Corporate image (the path that scales)
+
+Build from source in CI. Do not distribute pre-built binaries without
+signing.
+
+```dockerfile
+FROM your-base:tag
+ARG PRIVACYTK_COMMIT=<git-sha-of-release-tag>
+
+# 1. Install Rust toolchain.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain 1.91.0 --profile minimal
+
+# 2. Build from source (CI must run this with the tag pinned).
+RUN git clone https://internal.example.com/privacytk.git /src && \
+    cd /src && git checkout "$PRIVACYTK_COMMIT" && \
+    /root/.cargo/bin/cargo build --release && \
+    install -m 0755 /src/target/release/privacytk /usr/local/bin/privacytk
+
+# 3. Drop the deny-all allowlist into /etc/skel so every user
+#    inherits the default-deny starting state.
+COPY network.toml /etc/skel/.config/privacytk/network.toml
+
+# 4. (Optional) Install the Claude Code hooks globally so every
+#    developer's first `git status` is compressed automatically.
+RUN privacytk init -g --agent claude --auto-patch
+# Note: this writes to /root/.claude, which only the build user sees.
+# Per-developer init happens on their first Claude Code session.
+```
+
+### Verifying the install
+
+After any of the three paths, run the four-smoke battery from
+[How to test](#how-to-test):
+
+```bash
+BIN=privacytk   # or ./target/release/privacytk, /usr/local/bin/privacytk, etc.
+$BIN telemetry status | grep 'this build'       # compiled out
+$BIN verify-network api.example.com             # deny
+$BIN audit /tmp/_smoke --human                   # detect with redacted preview
+lsof -p $(${BIN} verify-network api.example.com & echo $!) | grep -c IPv   # 0 sockets
+```
+
+All four must pass. If any returns the wrong thing, the install is broken —
+do not promote the artefact.
+
+### Updating
+
+The fork follows semantic versioning. To update an existing install:
+
+```bash
+# 1. Pull the new tag.
+cd /path/to/privacytk
+git fetch --tags
+git checkout v0.<next>.<bugfix>
+
+# 2. Rebuild and replace.
+cargo build --release
+install -m 0755 target/release/privacytk ~/.local/bin/privacytk
+
+# 3. Re-run the drift script against the previous tag to verify the
+#    diff is clean (no reintroduced ureq / ccusage / telemetry POST).
+bash scripts/check-fork-drift.sh v0.<prev>.<bugfix>
+```
+
+`privacytk init -g` is idempotent — re-running it with a new binary does
+not duplicate hooks.
+
+### Uninstalling
+
+```bash
+# 1. Remove the hooks (Claude Code example; adapt for your agent).
+privacytk init -g --agent claude --uninstall
+
+# 2. Remove the binary.
+rm ~/.local/bin/privacytk   # or sudo rm /usr/local/bin/privacytk
+
+# 3. Remove user state (optional; only if you do not want the DB to
+#    survive the uninstall).
+rm -rf ~/.local/share/privacytk/
+rm -rf ~/.config/privacytk/
+```
+
+The drift check + the smoke battery are the recommended post-uninstall
+verification.
 
 ---
 
