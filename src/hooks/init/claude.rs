@@ -4,8 +4,9 @@
 use super::opencode::{ensure_opencode_plugin_installed, prepare_opencode_plugin_path};
 use super::*;
 use crate::hooks::constants::{
-    CLAUDE_DIR, CLAUDE_HOOK_COMMAND, CURSOR_DIR, HOOKS_SUBDIR, PRE_TOOL_USE_KEY,
-    REWRITE_HOOK_FILE, SESSION_START_HOOK_COMMAND, SETTINGS_JSON,
+    CLAUDE_DIR, CLAUDE_HOOK_COMMAND, CFD_CONTEXT_INJECTOR_HOOK_COMMAND,
+    CURSOR_DIR, HOOKS_SUBDIR, PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE,
+    SESSION_START_HOOK_COMMAND, SETTINGS_JSON,
 };
 
 /// Legacy mode (--claude-md): inject the full RTK_INSTRUCTIONS block into CLAUDE.md.
@@ -238,6 +239,28 @@ fn patch_settings_json_command(
         CLAUDE_HOOK_COMMAND,
         SESSION_START_HOOK_COMMAND,
     )?;
+
+    // The CFD context injector is the third fork-only hook. It runs on
+    // every PreToolUse (Bash) call but is a silent no-op for non-
+    // architectural commands — see `core::cfd_injector::is_architectural`.
+    // Latency is bounded by the cost of one `cfd` index parse + search,
+    // which is sub-millisecond on typical repos. We add it as a second
+    // PreToolUse entry because Claude Code processes hook entries
+    // independently and order is not guaranteed.
+    if !hook_command_already_present(
+        &root,
+        "PreToolUse",
+        CFD_CONTEXT_INJECTOR_HOOK_COMMAND,
+    ) {
+        append_hook_entry(
+            &mut root,
+            "PreToolUse",
+            serde_json::json!({
+                "matcher": "Bash",
+                "hooks": [{"type": "command", "command": CFD_CONTEXT_INJECTOR_HOOK_COMMAND}]
+            }),
+        )?;
+    }
 
     if !dry_run {
         ensure_parent_dir(&settings_path)?;

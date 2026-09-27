@@ -1133,6 +1133,20 @@ enum HookCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Read a Claude Code PreToolUse payload from stdin; if the Bash
+    /// command looks architecturally significant (commit, branch,
+    /// merge, package init, ADR creation), look up the related ADR
+    /// via `pkt cfd --summary` and emit it to stdout as a JSON
+    /// hookSpecificOutput.additionalContext block. The agent sees
+    /// the relevant decision before running the command.
+    CfdContextInjector {
+        /// Override the repo root (default: cwd).
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Cap on injected bytes (default 4000).
+        #[arg(long, default_value = "4000")]
+        max_bytes: usize,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -3324,6 +3338,14 @@ fn run_cli() -> Result<i32> {
                         // block session start when the repo doesn't have
                         // CFD scaffolding yet.
                     }
+                }
+                0
+            }
+            HookCommands::CfdContextInjector { repo, max_bytes } => {
+                let repo = repo.unwrap_or_else(|| PathBuf::from("."));
+                let out = core::cfd_injector::run_hook(&repo, max_bytes);
+                if !out.is_empty() {
+                    print!("{out}");
                 }
                 0
             }

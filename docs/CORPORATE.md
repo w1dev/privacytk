@@ -202,27 +202,24 @@ the returned ADR by id (or summary) — never read `docs/decisions/`
 whole. For session start, run `privacytk cfd-context --top-adrs 5`.
 ```
 
-## 2d. Automatic hooks (SessionStart only)
+## 2d. Automatic hooks (SessionStart + CFD context injector)
 
-A single `privacytk init -g --agent claude` installs two hooks
+A single `pkt init -g --agent claude` installs three hooks
 into `~/.claude/settings.json` (and one parallel set per agent you
 also init):
 
 | Hook event | Matcher | Command | What it does |
 |---|---|---|---|
-| `PreToolUse` | `Bash` | `privacytk hook claude` | Rewrites `git status` → `privacytk git status`, etc. (upstream behavior; **free for the developer**, no manual invocation needed.) |
-| `SessionStart` | `""` | `privacytk hook session-start` | On every Claude Code session start, emits the CFD manifest (CLAUDE.md + decisions index + `CURRENT_STATUS.md` In-Progress/Next-Priorities + 5 most-recent ADRs) to stdout. Claude Code prepends it to the session context. |
-
-The first hook is what the upstream `rtk` already did; the fork
-keeps it working but renames the binary to `privacytk`. The second
-is new.
+| `PreToolUse` | `Bash` | `pkt hook claude` | Rewrites `git status` → `pkt git status`, etc. (compression auto-applied) |
+| `PreToolUse` | `Bash` | `pkt hook cfd-context-injector` | **CFD auto-injector.** Detects architecturally-significant commands (`git commit -m`, `git checkout -b`, `cargo new`, etc.). Looks up the related ADR via `pkt cfd <topic>` and emits it as `hookSpecificOutput.additionalContext` so the agent sees the decision before running the command. Silent no-op for observation commands (`git status`, `cargo test`). |
+| `SessionStart` | `""` | `pkt hook session-start` | Emits the CFD manifest (CLAUDE.md + decisions index + `CURRENT_STATUS.md` In-Progress/Next-Priorities + 5 most-recent ADRs) to stdout. Claude Code prepends it to the session context. |
 
 **The pre-commit audit gate is intentionally not installed.** The
 corporate fork assumes a PR-based workflow with human review, and
 GHE push protection already blocks pushes that contain common
 secrets. Adding a second gate at commit time just generates friction
 (falsos positivos en fixtures, tests, etc.) for no additional
-safety. `privacytk audit <path>` stays available as a manual command
+safety. `pkt audit <path>` stays available as a manual command
 the developer (or a CI step) can run before pushing, but never blocks
 a commit.
 
@@ -232,12 +229,14 @@ to take a third argument and add the corresponding `PreToolUse`
 entry. The drift test in `src/core/drift_check.rs` asserts the constant
 is *absent* — flip the assertion if you re-enable.
 
-After `init`, the developer does not invoke `privacytk` manually
+After `init`, the developer does not invoke `pkt` manually
 for the common cases:
 
 - **Bash compression** happens automatically on every command the
   LLM tries to run.
 - **CFD context** is loaded on session start.
+- **CFD lookup** happens automatically before architecturally-significant
+  commands.
 
 What stays manual:
 

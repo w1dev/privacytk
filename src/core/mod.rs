@@ -4,6 +4,7 @@ pub mod arg_tokenizer;
 pub mod args_utils;
 pub mod audit;
 pub mod cfd;
+pub mod cfd_injector;
 pub mod config;
 pub mod constants;
 pub mod dedup;

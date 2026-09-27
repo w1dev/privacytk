@@ -378,3 +378,35 @@ fn corporate_hooks_installed_by_init() {
         "src/hooks/init/claude.rs install path must call insert_corporate_hooks"
     );
 }
+
+#[test]
+fn cfd_context_injector_is_wired() {
+    // The CFD context injector (PreToolUse hook) auto-injects relevant
+    // ADR summaries before architecturally significant commands.
+    // The drift invariant: the constant, the subcommand, and the
+    // install path are all present.
+    let constants = read("src/hooks/constants.rs");
+    assert!(
+        constants.contains("CFD_CONTEXT_INJECTOR_HOOK_COMMAND"),
+        "src/hooks/constants.rs must declare CFD_CONTEXT_INJECTOR_HOOK_COMMAND"
+    );
+    let main = read("src/main.rs");
+    assert!(
+        main.contains("HookCommands::CfdContextInjector"),
+        "main.rs must dispatch HookCommands::CfdContextInjector"
+    );
+    let claude_init = read("src/hooks/init/claude.rs");
+    assert!(
+        claude_init.contains("CFD_CONTEXT_INJECTOR_HOOK_COMMAND"),
+        "src/hooks/init/claude.rs install path must wire the CFD injector hook"
+    );
+    let module = read("src/core/cfd_injector.rs");
+    assert!(
+        module.contains("pub fn run_hook"),
+        "src/core/cfd_injector.rs must expose pub fn run_hook"
+    );
+    assert!(
+        module.contains("pub fn is_architectural"),
+        "src/core/cfd_injector.rs must expose pub fn is_architectural"
+    );
+}

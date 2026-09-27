@@ -27,6 +27,14 @@ pub const VIBE_HOOK_COMMAND: &str = "pkt hook vibe";
 /// session's opening context.
 pub const SESSION_START_HOOK_COMMAND: &str = "pkt hook session-start";
 
+/// PreToolUse hook: on every Bash call, decides if the command is
+/// architecturally significant (commit, branch, merge, package init,
+/// etc.). If so, looks up the relevant ADR via `pkt cfd --summary` and
+/// emits it as `hookSpecificOutput.additionalContext` so the agent sees
+/// the decision before running the command. Silent no-op for non-
+/// architectural commands (status, test, list, etc.).
+pub const CFD_CONTEXT_INJECTOR_HOOK_COMMAND: &str = "pkt hook cfd-context-injector";
+
 pub const CONFIG_DIR: &str = ".config";
 pub const OPENCODE_SUBDIR: &str = "opencode";
 pub const PLUGIN_SUBDIR: &str = "plugins";
