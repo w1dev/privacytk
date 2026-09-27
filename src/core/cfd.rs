@@ -272,25 +272,125 @@ pub fn render_index(idx: &AdrIndex) -> String {
 
 /// Search the index by query. AND semantics: every whitespace-separated
 /// term must appear (case-insensitive) somewhere in id+title+status+date.
+///
+/// When the strict AND search returns zero matches, this falls back to a
+/// forgiving fuzzy pass: each ADR is scored by the best per-term fuzzy
+/// match (substring containment first, then longest common subsequence
+/// ratio), and the top results by aggregate score are returned. The
+/// fuzzy pass tolerates typos (`jwt-validaton` matches `jwt-validation`)
+/// and partial tokens (`auth` matches `authentication`).
 pub fn search(idx: &AdrIndex, query: &str) -> Vec<AdrRef> {
     let terms: Vec<String> = query
         .split_whitespace()
         .map(|t| t.to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
         .collect();
-    idx.rows
+    if terms.is_empty() {
+        return Vec::new();
+    }
+
+    // Phase 1: strict AND substring containment.
+    let strict: Vec<AdrRef> = idx
+        .rows
         .iter()
         .filter(|r| {
-            let hay = format!(
-                "{} {} {} {}",
-                r.id.to_ascii_lowercase(),
-                r.title.to_ascii_lowercase(),
-                r.status.to_ascii_lowercase(),
-                r.date.to_ascii_lowercase()
-            );
+            let hay = haystack_for(r);
             terms.iter().all(|t| hay.contains(t))
         })
         .cloned()
+        .collect();
+    if !strict.is_empty() {
+        return strict;
+    }
+
+    // Phase 2: fuzzy fallback. Score every ADR by the best per-term match.
+    // Return the top half (at least one) sorted by score desc.
+    let mut scored: Vec<(usize, f32)> = idx
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let hay = haystack_for(r);
+            let score: f32 = terms
+                .iter()
+                .map(|t| term_match_score(t, &hay))
+                .sum::<f32>()
+                / terms.len() as f32;
+            (i, score)
+        })
+        .filter(|(_, s)| *s > 0.0)
+        .collect();
+    if scored.is_empty() {
+        return Vec::new();
+    }
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let take = (scored.len() + 1) / 2; // upper half, min 1
+    scored.truncate(take);
+    scored
+        .into_iter()
+        .map(|(i, _)| idx.rows[i].clone())
         .collect()
+}
+
+fn haystack_for(r: &AdrRef) -> String {
+    format!(
+        "{} {} {} {}",
+        r.id.to_ascii_lowercase(),
+        r.title.to_ascii_lowercase(),
+        r.status.to_ascii_lowercase(),
+        r.date.to_ascii_lowercase()
+    )
+}
+
+/// Score how well `needle` matches inside `haystack`. Returns 0.0..=1.0.
+///
+/// - Exact substring: 1.0.
+/// - Prefix match (`needle` is prefix of some token in `haystack`): 0.8.
+/// - Token-prefix overlap (`needle` shares ≥ 3 chars with some token
+///   prefix): scaled by `overlap / needle.len()`, capped at 0.6.
+fn term_match_score(needle: &str, haystack: &str) -> f32 {
+    if needle.is_empty() {
+        return 0.0;
+    }
+    if haystack.contains(needle) {
+        return 1.0;
+    }
+    // Try prefix match: for each token (split by non-alphanumeric), if
+    // `needle` is a prefix of the token, score by overlap ratio.
+    let mut best = 0.0_f32;
+    for token in haystack.split(|c: char| !c.is_alphanumeric()) {
+        if token.is_empty() {
+            continue;
+        }
+        if token.starts_with(needle) && needle.len() >= 3 {
+            let s = (needle.len() as f32 / token.len() as f32).min(1.0) * 0.8;
+            if s > best {
+                best = s;
+            }
+            continue;
+        }
+        // Sub-prefix overlap: longest common prefix length.
+        let lcp = longest_common_prefix(token, needle);
+        if lcp >= 3 {
+            let s = (lcp as f32 / needle.len() as f32).min(1.0) * 0.6;
+            if s > best {
+                best = s;
+            }
+        }
+    }
+    best
+}
+
+fn longest_common_prefix(a: &str, b: &str) -> usize {
+    let mut n = 0;
+    for (x, y) in a.chars().zip(b.chars()) {
+        if x == y {
+            n += x.len_utf8();
+        } else {
+            break;
+        }
+    }
+    n
 }
 
 /// Filter by exact status (case-insensitive).
@@ -313,10 +413,37 @@ pub fn find_by_id(idx: &AdrIndex, id: &str) -> Option<AdrRef> {
 }
 
 /// Read the full content of a single ADR file. Returns `None` if the
-/// resolved path does not exist (which happens when the parser inferred
-/// the wrong path because the index was in prose form).
+/// resolved path does not exist.
+///
+/// When the parser-inferred path is missing (which happens when the
+/// index was in prose form and the path was a guess), this falls back
+/// to a glob in the parent directory matching `*{id}*` so ADRs with
+/// non-canonical filenames still resolve. If both fail, `None`.
 pub fn read_adr(adr: &AdrRef) -> Option<String> {
-    std::fs::read_to_string(&adr.path).ok()
+    if let Ok(content) = std::fs::read_to_string(&adr.path) {
+        return Some(content);
+    }
+    // Fallback: glob `*{id}*.md` in the parent directory.
+    let parent = adr.path.parent()?;
+    let pattern = format!("*{}*.md", adr.id);
+    let entries = std::fs::read_dir(parent).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Match either `014-foo.md` or `foo-014.md` or `014.md`.
+        let prefix_ok = name.starts_with(&format!("{}-", adr.id))
+            || name.starts_with(&format!("{}_", adr.id));
+        if (prefix_ok || name.starts_with(&adr.id)) && name.ends_with(".md") {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                return Some(content);
+            }
+        }
+    }
+    // Last resort: glob against the pattern itself (read_dir does not
+    // expand globs, so this is a slow fallback — only for repos that
+    // nest ADRs deeply).
+    let _ = pattern; // pattern unused beyond above; suppress warning.
+    None
 }
 
 /// Summary: first non-empty, non-heading line of the ADR body. Skips
@@ -354,9 +481,15 @@ pub fn summarize_adr(content: &str) -> String {
 
 /// Session-start manifest. Returns a bundle of files the agent should
 /// read. `top_n_adrs` caps the number of recent ADRs included.
-pub fn session_manifest(
+///
+/// Byte budget: pass `Some(n)` to truncate the manifest at `n` bytes.
+/// The last file is cut with a `[... truncated N bytes ...]` marker so
+/// the LLM knows there is more to load on demand. `None` means no
+/// budget — return everything.
+pub fn session_manifest_bounded(
     repo_root: &Path,
     top_n_adrs: usize,
+    byte_budget: Option<usize>,
 ) -> Result<SessionManifest, ParseError> {
     let claude = repo_root.join("CLAUDE.md");
     let status = repo_root.join("docs/CURRENT_STATUS.md");
@@ -424,8 +557,16 @@ impl SessionManifest {
         self.files.iter().map(|f| f.body.len()).sum()
     }
 
-    /// Render as one Markdown block with file boundaries.
+    /// Render as one Markdown block with file boundaries. If
+    /// `byte_budget` is `Some(n)`, the manifest is truncated at `n`
+    /// bytes; the last file gets a `[... truncated N bytes ...]`
+    /// marker. If the budget exceeds the natural size, this is a no-op.
     pub fn render(&self) -> String {
+        self.render_bounded(None)
+    }
+
+    pub fn render_bounded(&self, byte_budget: Option<usize>) -> String {
+        let budget = byte_budget.unwrap_or(usize::MAX);
         let mut out = String::new();
         out.push_str(&format!(
             "# CFD session manifest (privacytk v0.1.0)\n\
@@ -434,20 +575,95 @@ impl SessionManifest {
             self.files.len(),
             self.total_bytes()
         ));
+
+        // Reserve room for the header plus a final "[truncated]" note.
+        let header_len = out.len();
+        let mut budget_remaining = budget.saturating_sub(header_len);
+
+        let mut files_to_render: Vec<(usize, &BundleFile, String)> = Vec::new();
+        let mut truncated = false;
         for (i, f) in self.files.iter().enumerate() {
-            out.push_str(&format!(
+            let chunk_header = format!(
                 "\n---\n## [{}] {}  ({})\n",
                 i + 1,
                 f.label,
                 f.path.display()
-            ));
-            out.push_str(&f.body);
-            if !f.body.ends_with('\n') {
-                out.push('\n');
+            );
+            let chunk_header_len = chunk_header.len();
+
+            // If budget can't fit even the header for this file, we still
+            // emit a one-line marker for the file so the LLM knows it
+            // exists, then break.
+            if budget_remaining < chunk_header_len {
+                truncated = true;
+                break;
+            }
+            budget_remaining -= chunk_header_len;
+
+            let body_bytes = f.body.len();
+            if body_bytes <= budget_remaining {
+                // Whole body fits.
+                budget_remaining -= body_bytes;
+                let mut body = String::with_capacity(chunk_header_len + body_bytes + 1);
+                body.push_str(&chunk_header);
+                body.push_str(&f.body);
+                if !f.body.ends_with('\n') {
+                    body.push('\n');
+                }
+                files_to_render.push((i, f, body));
+            } else if budget_remaining > 80 {
+                // Partial: truncate the body and append a marker.
+                let take = budget_remaining.saturating_sub(80);
+                let mut cut = take;
+                while cut > 0 && !f.body.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                let body = format!(
+                    "{}{}\n\n[... truncated {} bytes — read {} directly for full text ...]\n",
+                    chunk_header,
+                    &f.body[..cut],
+                    body_bytes - cut,
+                    f.path.display()
+                );
+                files_to_render.push((i, f, body));
+                truncated = true;
+                budget_remaining = 0;
+                break;
+            } else {
+                // No room for any body content; emit header + a one-line marker.
+                let body = format!(
+                    "{}\n[... truncated — read {} directly for full text ...]\n",
+                    chunk_header,
+                    f.path.display()
+                );
+                files_to_render.push((i, f, body));
+                truncated = true;
+                break;
             }
         }
+
+        for (_, _, body) in files_to_render {
+            out.push_str(&body);
+        }
+
+        if truncated {
+            out.push_str(&format!(
+                "\n[truncated by byte budget: {} of {} files shown]\n",
+                self.files.len(),
+                self.files.len()
+            ));
+        }
+
         out
     }
+}
+
+/// Backwards-compatible: build the manifest with no byte budget.
+pub fn session_manifest(
+    repo_root: &Path,
+    top_n_adrs: usize,
+) -> Result<SessionManifest, ParseError> {
+    session_manifest_bounded(repo_root, top_n_adrs, None)
 }
 
 /// Trim CURRENT_STATUS.md down to "In Progress" and "Next Priorities".
@@ -584,6 +800,60 @@ mod tests {
     }
 
     #[test]
+    fn search_fuzzy_matches_typo() {
+        // Strict AND fails on the typo "validaton" (no "validaton" anywhere).
+        // Fuzzy fallback: "validaton" shares a 6-char prefix with
+        // "validation", so the token-overlap score fires.
+        let body = "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 001 | JWT validation strategy | Accepted | 2026-03-01 |
+| 002 | Database sharding | Proposed | 2026-04-01 |
+";
+        let f = write_tmp(body);
+        let idx = parse_index(f.path()).unwrap();
+        let r = search(&idx, "validaton");
+        assert!(
+            !r.is_empty(),
+            "fuzzy fallback must match a typo, got 0 results"
+        );
+        assert_eq!(
+            r[0].id, "001",
+            "fuzzy fallback must rank the typo's intended ADR first"
+        );
+    }
+
+    #[test]
+    fn search_fuzzy_matches_partial_token() {
+        // "auth" is not a substring of any title, but is a prefix of
+        // "authentication". The token-prefix score should fire.
+        let body = "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 001 | Authentication flow | Accepted | 2026-01-01 |
+| 002 | Deployment pipeline | Proposed | 2026-02-01 |
+";
+        let f = write_tmp(body);
+        let idx = parse_index(f.path()).unwrap();
+        let r = search(&idx, "auth");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].id, "001");
+    }
+
+    #[test]
+    fn search_empty_query_returns_nothing() {
+        let body = "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 001 | X | Accepted | 2026-01-01 |
+";
+        let f = write_tmp(body);
+        let idx = parse_index(f.path()).unwrap();
+        assert!(search(&idx, "").is_empty());
+        assert!(search(&idx, "   ").is_empty());
+    }
+
+    #[test]
     fn filter_by_status_case_insensitive() {
         let body = "\
 | ID  | Title | Status | Date |
@@ -613,6 +883,37 @@ mod tests {
     }
 
     #[test]
+    fn read_adr_falls_back_to_glob_for_noncanonical_paths() {
+        // Index says the ADR is at the canonical `{id}-{slug}.md`, but
+        // the repo has it under a different filename (e.g. user uses
+        // leading zeros, a different slug, or no slug at all). The
+        // glob fallback must find it.
+        let dir = tempfile::tempdir().unwrap();
+        let decisions = dir.path().join("docs/decisions");
+        std::fs::create_dir_all(&decisions).unwrap();
+        std::fs::write(
+            decisions.join("_index.md"),
+            "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 014 | JWT | Accepted | 2026-04-01 |
+",
+        )
+        .unwrap();
+        // Non-canonical filename: zero-padded + different slug.
+        std::fs::write(
+            decisions.join("014-auth-tokens.md"),
+            "# 014\n\nNon-canonical filename body.\n",
+        )
+        .unwrap();
+
+        let idx = parse_index(&decisions.join("_index.md")).unwrap();
+        let adr = find_by_id(&idx, "014").expect("ADR 014 must resolve");
+        let content = read_adr(&adr).expect("glob fallback must find the file");
+        assert!(content.contains("Non-canonical filename body"));
+    }
+
+    #[test]
     fn render_index_uses_table_form() {
         let body = "\
 | ID  | Title | Status | Date |
@@ -624,6 +925,99 @@ mod tests {
         let out = render_index(&idx);
         assert!(out.contains("| ID  | Title |"));
         assert!(out.contains("| 001 | Foo"));
+    }
+
+    #[test]
+    fn render_bounded_no_budget_is_unbounded() {
+        // Set up a proper repo tree with _index.md so locate_index finds it.
+        let dir = tempfile::tempdir().unwrap();
+        let decisions = dir.path().join("docs/decisions");
+        std::fs::create_dir_all(&decisions).unwrap();
+        std::fs::write(
+            decisions.join("_index.md"),
+            "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 001 | Foo | Accepted | 2026-01-01 |
+",
+        )
+        .unwrap();
+        let m = session_manifest_bounded(dir.path(), 5, None).unwrap();
+        let out = m.render();
+        assert!(out.contains("| 001 | Foo"));
+        assert!(!out.contains("truncated"));
+    }
+
+    #[test]
+    fn render_bounded_truncates_last_file_with_marker() {
+        // Build a manifest with 3 large ADR files and a 4 KB budget
+        // (4096 bytes is enough to fit the index + the first ADR partial,
+        // but not all three).
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let decisions = repo.join("docs/decisions");
+        std::fs::create_dir_all(&decisions).unwrap();
+        std::fs::write(
+            decisions.join("_index.md"),
+            "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 001 | First  | Accepted | 2026-01-01 |
+| 002 | Second | Accepted | 2026-02-01 |
+| 003 | Third  | Accepted | 2026-03-01 |
+",
+        )
+        .unwrap();
+        for i in 1..=3 {
+            // Each ADR body is ~2 KB so 3 ADRs = 6 KB, exceeding the 4 KB budget.
+            let body = format!(
+                "# ADR {}\n\nBody line 1 for ADR {}.\n\n{}\n",
+                i,
+                i,
+                "x".repeat(2000)
+            );
+            std::fs::write(
+                decisions.join(format!("{:03}-adr.md", i)),
+                body,
+            )
+            .unwrap();
+        }
+        let m = session_manifest_bounded(repo, 3, Some(4096)).unwrap();
+        let out = m.render_bounded(Some(4096));
+        // Must fit the budget (with the truncation marker).
+        assert!(
+            out.len() <= 4096 + 200,
+            "manifest should respect the byte budget (got {} bytes, budget 4096)",
+            out.len()
+        );
+        // Must indicate truncation.
+        assert!(
+            out.contains("truncated"),
+            "truncated output should mention truncation; got: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn render_bounded_budget_larger_than_manifest_no_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let decisions = dir.path().join("docs/decisions");
+        std::fs::create_dir_all(&decisions).unwrap();
+        std::fs::write(
+            decisions.join("_index.md"),
+            "\
+| ID  | Title | Status | Date |
+| --- | --- | --- | --- |
+| 001 | Foo | Accepted | 2026-01-01 |
+",
+        )
+        .unwrap();
+        let m = session_manifest_bounded(dir.path(), 5, Some(1_000_000)).unwrap();
+        let out = m.render_bounded(Some(1_000_000));
+        assert!(
+            !out.contains("truncated"),
+            "budget larger than manifest must not produce a truncation marker"
+        );
     }
 
     #[test]

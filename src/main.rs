@@ -1069,6 +1069,11 @@ enum Commands {
         /// Number of recent ADRs to include (default 3).
         #[arg(long, default_value = "3")]
         top_adrs: usize,
+        /// Cap the manifest at this many bytes. ADRs beyond the cap are
+        /// truncated with a `[... truncated ...]` marker so the LLM knows
+        /// where to read the full text if needed.
+        #[arg(long)]
+        bytes: Option<usize>,
         /// Path to the repo root (defaults to ".").
         #[arg(long)]
         repo: Option<PathBuf>,
@@ -3111,11 +3116,11 @@ fn run_cli() -> Result<i32> {
             0
         }
 
-        Commands::CfdContext { top_adrs, repo } => {
+        Commands::CfdContext { top_adrs, bytes, repo } => {
             let repo_root = repo.unwrap_or_else(|| std::path::PathBuf::from("."));
-            match core::cfd::session_manifest(&repo_root, top_adrs) {
+            match core::cfd::session_manifest_bounded(&repo_root, top_adrs, bytes) {
                 Ok(m) => {
-                    print!("{}", m.render());
+                    print!("{}", m.render_bounded(bytes));
                     0
                 }
                 Err(e) => {
