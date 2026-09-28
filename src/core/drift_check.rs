@@ -314,6 +314,27 @@ fn corporate_doc_present() {
 }
 
 #[test]
+fn roadmap_present() {
+    let path = Path::new(ROOT).join("docs/ROADMAP.md");
+    assert!(
+        path.exists(),
+        "docs/ROADMAP.md lists planned improvements with acceptance \
+         criteria; remove this drift marker only when the file is \
+         intentionally deleted"
+    );
+    let body = std::fs::read_to_string(&path).expect("read");
+    // The three CFD context-quality items must remain tracked here
+    // until they land (or are explicitly removed by a future commit).
+    assert!(
+        body.contains("Manifest + tools API")
+            && body.contains("Per-ADR importance scoring")
+            && body.contains("Embedding-based similarity"),
+        "docs/ROADMAP.md must list the three planned CFD context-quality \
+         improvements with their flag names"
+    );
+}
+
+#[test]
 fn drift_script_present_and_executable() {
     let p = Path::new(ROOT).join("scripts/check-fork-drift.sh");
     assert!(p.exists(), "scripts/check-fork-drift.sh must exist");
