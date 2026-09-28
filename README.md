@@ -662,6 +662,120 @@ GitHub Copilot (CLI mode). Each gets its own per-agent install command
 CFD integration work without any agent installed — `privacytk git
 status` works on its own.
 
+### Does the CFD context lose fidelity compared to upstream CFD?
+
+No. The bundle that the LLM sees (`pkt cfd-context`, the SessionStart
+hook) is 1:1 with what a developer would see by opening the same
+files manually: `CLAUDE.md` + `docs/decisions/_index.md` + the
+"In Progress" and "Next Priorities" sections of `CURRENT_STATUS.md`
+plus N most-recent ADR summaries. No information is dropped or
+rephrased. When the manifest is truncated by `--bytes`, only the
+last ADR gets a `[... truncated N bytes ...]` marker with the file
+path, so the LLM knows where to read the full text if needed.
+
+### What does the CFD context injector do, exactly?
+
+Three hooks fire automatically once `pkt init -g` is run:
+
+| Hook | When | What |
+|---|---|---|
+| `PreToolUse (Bash) → pkt hook claude` | Every Bash command | Rewrites `git status` → `pkt git status`, etc. (compression). |
+| `PreToolUse (Bash) → pkt hook cfd-context-injector` | Every Bash command, but only acts on architectural ones | Detects commits, branches, package init, ADR creation; extracts the topic from the command; runs `pkt cfd <topic>` and emits the top-hit summary as `hookSpecificOutput.additionalContext` so the agent sees the decision before running the command. Silent no-op for observation commands (`git status`, `cargo test`). |
+| `SessionStart → pkt hook session-start` | Once per Claude Code session | Emits the CFD manifest to stdout; Claude Code prepends it to the session context. |
+
+The net effect: the LLM never has to remember to call `pkt cfd` for
+architectural commands. The injector fires once per command,
+adds ~10–30 ms of latency, and only injects content when the topic
+matches an existing ADR. Repos without CFD scaffolding stay silent.
+
+### How much context does the CFD bundle add per session?
+
+Defaults are `pkt cfd-context --top-adrs 5`. For a typical repo:
+
+| Repo size | Bundle size (default) | Bundle size (`--bytes 8000`) |
+|---|---|---|
+| 5 ADRs, 2 KB each | ~15 KB | capped at 8 KB |
+| 15 ADRs, 5 KB each | ~33 KB | capped at 8 KB |
+| 50 ADRs, mixed sizes | ~150 KB | capped at 8 KB |
+
+If you observe the LLM complaining about "too much context" on repos
+with many ADRs, use `--bytes 4000` for the SessionStart hook. The drift
+test asserts the bundle never exceeds your cap.
+
+### What if the bundle truncates an ADR the LLM needs?
+
+The bundle's last ADR carries a `[... truncated N bytes — read
+<path> directly for full text ...]` marker. The LLM can either:
+
+1. Use the Read tool on `<path>` to fetch the full file.
+2. Call `pkt cfd --id <N>` to retrieve the untruncated ADR.
+3. Run `pkt cfd-context --manifest-and-tools` (planned; see "Future
+   improvements" below) which emits a manifest plus a tool descriptor
+   so the LLM can invoke `cfd-read` on demand.
+
+Today, options 1 and 2 work; option 3 is a planned improvement.
+
+### How is context quality maintained when repos grow large?
+
+For repos with more than ~20 ADRs, the current ranking (date
+descending) starts to return mostly-irrelevant decisions. The fork has
+these planned improvements (see `CORPORATE.md` §2c):
+
+1. **Manifest + tools API** (`pkt cfd-context --manifest-and-tools`).
+   Bundle emits the manifest plus a JSON tool descriptor so the LLM
+   invokes `cfd-read` for ADRs it actually needs instead of receiving
+   them inline.
+2. **Per-ADR importance scoring.** Combine recency, decisiveness
+   (`Accepted` > `Proposed`), and topic relevance (heuristic: the
+   last commands the LLM ran) to rank by importance, not just date.
+3. **Embedding-based similarity.** For repos with 50+ ADRs, compute
+   cosine similarity between the LLM's recent task description and
+   each ADR's title/summary to pick the top 5.
+
+None of these are implemented today; the date ranking is the current
+baseline. They preserve fidelity by trading fixed-byte budget for
+context-aware selection.
+
+### Why is the auto-injector silent for `git status` but loud for `git commit`?
+
+It uses a structural match on `(binary, subcommand)`:
+
+- **Architectural** (returns true → looks up ADR):
+  `git commit`, `git checkout -b`, `git switch -c`, `cargo new`,
+  `cargo init`, `npm init`, `pip install`, `kubectl apply`, `kubectl
+  create`, `docker build`, `docker run`, `mkdir`, `touch`, `rm`, `mv`,
+  `helm install`, `terraform apply`, `gh pr create`, etc.
+- **Observation** (returns false → silent no-op):
+  `git status`, `git log`, `git diff`, `git show`, `git branch`,
+  `cargo test`, `cargo build`, `cargo check`, `npm ls`, `kubectl get`,
+  `kubectl describe`, `docker ps`, `ls`, `cat`, `find`, `grep`,
+  `echo`, `pwd`, `wc`, etc.
+- **Unknown binary** (returns false → silent no-op):
+  Safer default; we don't want to spam the LLM with ADR context
+  on commands we don't understand.
+
+The full table is in `src/core/cfd_injector.rs::is_architectural`.
+
+### Does the injector add latency to every Bash call?
+
+Yes, ~10–30 ms per call. This is the cost of:
+
+1. JSON parsing the PreToolUse payload from stdin (~1 ms).
+2. Structural match on the first two tokens of the command (~0 ms).
+3. If architectural: parse the `docs/decisions/_index.md` (~5–15 ms
+   for small repos; more for repos with 50+ ADRs).
+4. Topic extraction + search (~1 ms for ≤50 ADRs).
+
+For workflows with 100+ Bash calls per session, that adds up to
+1–3 seconds total. The injector is silent for non-architectural
+commands so observation-heavy workflows (`cargo test` ×50) see no
+cost. The cost only accrues when the LLM is *making changes*, which is
+when the ADR context is most useful anyway.
+
+If latency becomes a problem, a future optimization would cache the
+index parse keyed on `(repo_path, mtime)` so subsequent calls within
+the same session avoid re-parsing.
+
 ---
 
 ## License

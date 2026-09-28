@@ -202,6 +202,34 @@ the returned ADR by id (or summary) — never read `docs/decisions/`
 whole. For session start, run `privacytk cfd-context --top-adrs 5`.
 ```
 
+### Future improvements (not yet implemented)
+
+The current `--top-adrs N` ranking is date-descending. For repos
+with many ADRs this returns mostly-irrelevant decisions. Three
+planned improvements preserve fidelity by trading a fixed byte
+budget for context-aware selection:
+
+1. **Manifest + tools API** (`pkt cfd-context --manifest-and-tools`).
+   Bundle emits the manifest plus a JSON tool descriptor so the
+   LLM invokes `cfd-read` for ADRs it actually needs instead of
+   receiving them inline. Closer to how Claude Code already
+   consumes the rest of the system (tools on demand).
+2. **Per-ADR importance scoring.** Combine recency, decisiveness
+   (`Accepted` > `Proposed` > `Superseded`), and topic relevance
+   (heuristic: the last commands the LLM ran) to rank by
+   importance, not just date.
+3. **Embedding-based similarity.** For repos with 50+ ADRs,
+   cosine similarity between the LLM's recent task description
+   and each ADR's title/summary picks the top 5. Adds 50–200 ms
+   per bundle; only worth it for large decision repositories.
+
+Until these land, the fidelity is preserved by the byte-budget
+truncation marker pointing the LLM at the ADR's path, and the
+CFD context injector auto-firing before architecturally-
+significant commands. See the README FAQ ("Does the CFD
+context lose fidelity compared to upstream CFD?" onward) for
+the operator-facing descriptions.
+
 ## 2d. Automatic hooks (SessionStart + CFD context injector)
 
 A single `pkt init -g --agent claude` installs three hooks
